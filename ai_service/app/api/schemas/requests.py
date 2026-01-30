@@ -1,13 +1,34 @@
-from pydantic import BaseModel, Field
-from typing import List
+from __future__ import annotations
+
+from typing import List, Optional
+from pydantic import BaseModel
+
 
 class EmbedRequest(BaseModel):
-    """Request body for /embed endpoint."""
-    texts: List[str] = Field(..., min_length=1, description="List of input strings to embed")
+    texts: List[str]
     normalize: bool = True
 
+
 class SimilarityRequest(BaseModel):
-    """Request body for /similarity endpoint (semantic search)."""
-    queries: List[str] = Field(..., min_length=1)
-    corpus: List[str] = Field(..., min_length=1)
+    queries: List[str]
+    corpus: List[str]
     top_k: int = 5
+
+
+class RegulationCandidate(BaseModel):
+    """Represents a regulation from the backend database."""
+    id: int
+    title: str
+    category: Optional[str] = None
+    content_text: Optional[str] = None
+
+
+class FindRelatedRequest(BaseModel):
+    """
+    Request to find regulations related to a case.
+    Used by backend API to trigger AI matching.
+    """
+    case_text: str
+    regulations: List[RegulationCandidate]
+    top_k: int = 10
+    threshold: float = 0.3

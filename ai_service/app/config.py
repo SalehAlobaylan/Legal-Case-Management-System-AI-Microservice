@@ -43,6 +43,16 @@ class Settings(BaseSettings):
         validation_alias="CORS_ORIGINS",
     )
 
+    # Backend API integration
+    backend_api_url: str = Field(
+        default="https://orca-app-uayze.ondigitalocean.app",
+        validation_alias="BACKEND_API_URL",
+    )
+    backend_api_key: str = Field(
+        default="",  # Optional API key for backend authentication
+        validation_alias="BACKEND_API_KEY",
+    )
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def parse_cors(cls, v: Any) -> Any:

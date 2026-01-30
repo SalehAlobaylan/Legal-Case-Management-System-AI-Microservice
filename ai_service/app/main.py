@@ -1,17 +1,16 @@
+import random
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from app.config import settings
-from app.api.routes.health import router as health_router
-# routes
-from app.api.routes.embeddings import router as embed_router
-from app.api.routes.similarity import router as sim_router
+from app.api.routes import health, embeddings, similarity, find_related
+
+random.seed(42)
 
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json",
 )
 
 app.add_middleware(
@@ -22,11 +21,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(health_router)
-# routes
-app.include_router(embed_router)
-app.include_router(sim_router)
 
 @app.get("/")
-def root():
-    return {"ok": True}
+async def root():
+    return {
+        "app": settings.app_name,
+        "version": settings.app_version,
+        "env": settings.env,
+    }
+
+
+app.include_router(health.router, tags=["health"])
+app.include_router(embeddings.router, tags=["embeddings"])
+app.include_router(similarity.router, tags=["similarity"])
+app.include_router(find_related.router, tags=["similarity"])
+
