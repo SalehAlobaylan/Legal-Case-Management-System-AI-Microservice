@@ -8,6 +8,8 @@ This endpoint is designed specifically for the backend API to call:
 
 from __future__ import annotations
 
+from collections import defaultdict, deque
+
 from fastapi import APIRouter, HTTPException
 from app.core.similarity import SimilarityService
 from app.api.schemas.requests import FindRelatedRequest
@@ -137,14 +139,21 @@ async def find_related_regulations(payload: FindRelatedRequest) -> FindRelatedRe
             )
         
         matched_pairs = ranked_results[0]  # List of (text, score) tuples
-        
+        text_to_indices = defaultdict(deque)
+        for idx, text in enumerate(regulation_texts):
+            text_to_indices[text].append(idx)
+
         # Build response, filtering by threshold
         related_regulations = []
-        for idx, (matched_text, score) in enumerate(matched_pairs):
+        for matched_text, score in matched_pairs:
             if score < payload.threshold:
                 continue
-            
-            reg_id = regulation_ids[idx]
+
+            indices = text_to_indices.get(matched_text)
+            if not indices:
+                continue
+
+            reg_id = regulation_ids[indices.popleft()]
             metadata = regulation_metadata[reg_id]
             
             related_regulations.append(

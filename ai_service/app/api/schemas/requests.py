@@ -32,3 +32,10 @@ class FindRelatedRequest(BaseModel):
     regulations: List[RegulationCandidate]
     top_k: int = 10
     threshold: float = 0.3
+
+
+class RegulationExtractRequest(BaseModel):
+    source_url: str
+    if_none_match: Optional[str] = None
+    if_modified_since: Optional[str] = None
+    max_chars: Optional[int] = None
