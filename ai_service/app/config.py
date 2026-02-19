@@ -53,6 +53,52 @@ class Settings(BaseSettings):
         validation_alias="BACKEND_API_KEY",
     )
 
+    # Regulation extraction / OCR
+    ocr_primary_provider: str = Field(
+        default="alapi",
+        validation_alias="OCR_PRIMARY_PROVIDER",
+    )
+    ocr_secondary_provider: str = Field(
+        default="none",
+        validation_alias="OCR_SECONDARY_PROVIDER",
+    )
+    alapi_base_url: str = Field(
+        default="https://alapi.deep.sa",
+        validation_alias="ALAPI_BASE_URL",
+    )
+    alapi_api_key: str = Field(
+        default="",
+        validation_alias="ALAPI_API_KEY",
+    )
+    alapi_ocr_path: str = Field(
+        default="/ocr",
+        validation_alias="ALAPI_OCR_PATH",
+    )
+    source_whitelist_domains: List[str] = Field(
+        default=["laws.boe.gov.sa", "laws.moj.gov.sa", "boe.gov.sa", "moj.gov.sa"],
+        validation_alias="SOURCE_WHITELIST_DOMAINS",
+    )
+    extraction_timeout_seconds: float = Field(
+        default=30.0,
+        validation_alias="EXTRACTION_TIMEOUT_SECONDS",
+    )
+    extraction_max_bytes: int = Field(
+        default=15_000_000,
+        validation_alias="EXTRACTION_MAX_BYTES",
+    )
+    extraction_max_chars: int = Field(
+        default=120_000,
+        validation_alias="EXTRACTION_MAX_CHARS",
+    )
+    ocr_min_text_chars: int = Field(
+        default=400,
+        validation_alias="OCR_MIN_TEXT_CHARS",
+    )
+    ocr_strict_mode: bool = Field(
+        default=False,
+        validation_alias="OCR_STRICT_MODE",
+    )
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def parse_cors(cls, v: Any) -> Any:
@@ -79,6 +125,27 @@ class Settings(BaseSettings):
                     pass
 
             # Fallback: comma-separated
+            return [item.strip() for item in s.split(",") if item.strip()]
+
+        return v
+
+    @field_validator("source_whitelist_domains", mode="before")
+    @classmethod
+    def parse_domains(cls, v: Any) -> Any:
+        if isinstance(v, list):
+            return v
+
+        if isinstance(v, str):
+            s = v.strip()
+            if not s:
+                return []
+
+            if s.startswith("[") and s.endswith("]"):
+                try:
+                    return json.loads(s)
+                except Exception:
+                    pass
+
             return [item.strip() for item in s.split(",") if item.strip()]
 
         return v

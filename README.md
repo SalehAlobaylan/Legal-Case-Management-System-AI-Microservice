@@ -95,6 +95,7 @@ Find regulations related to a case. **For backend integration.**
 
 - **POST `/embed/`** - Generate embeddings for text
 - **POST `/similarity/`** - Rank documents by similarity (text-based)
+- **POST `/regulations/extract`** - Fetch + extract regulation text (parser + OCR fallback)
 - **GET `/`** - Root endpoint
 - **GET `/health/`** - Health check
 
@@ -183,6 +184,19 @@ CORS_ORIGINS=["http://localhost:3000","http://localhost:5173"]
 # Backend API (new)
 BACKEND_API_URL=https://orca-app-uayze.ondigitalocean.app
 BACKEND_API_KEY=
+
+# Regulation extraction / OCR
+OCR_PRIMARY_PROVIDER=alapi
+OCR_SECONDARY_PROVIDER=none
+ALAPI_BASE_URL=https://alapi.deep.sa
+ALAPI_API_KEY=
+ALAPI_OCR_PATH=/ocr
+SOURCE_WHITELIST_DOMAINS=laws.boe.gov.sa,laws.moj.gov.sa,boe.gov.sa,moj.gov.sa
+EXTRACTION_TIMEOUT_SECONDS=30
+EXTRACTION_MAX_BYTES=15000000
+EXTRACTION_MAX_CHARS=120000
+OCR_MIN_TEXT_CHARS=400
+OCR_STRICT_MODE=false
 ```
 
 ---
