@@ -19,12 +19,21 @@ class SimilarityResponse(BaseModel):
     results: List[List[SimilarityResultItem]]
 
 
+class MatchEvidence(BaseModel):
+    fragment_id: str
+    source: str
+    document_id: Optional[int] = None
+    document_name: Optional[str] = None
+    score: float
+
+
 class RelatedRegulation(BaseModel):
     """A regulation matched to a case with similarity score."""
     regulation_id: int
     title: str
     category: Optional[str] = None
     similarity_score: float
+    evidence: Optional[List[MatchEvidence]] = None
 
 
 class FindRelatedResponse(BaseModel):
@@ -52,3 +61,37 @@ class RegulationExtractResponse(BaseModel):
     fallback_stage: str = "none"
     warnings: List[str] = []
     error_code: Optional[str] = None
+
+
+class DocumentExtractResponse(BaseModel):
+    status: str
+    file_name: str
+    content_type: Optional[str] = None
+    extraction_method: str
+    extracted_text: Optional[str] = None
+    normalized_text_hash: Optional[str] = None
+    ocr_provider_used: str = "none"
+    fallback_stage: str = "none"
+    warnings: List[str] = []
+    error_code: Optional[str] = None
+
+
+class ChatResponse(BaseModel):
+    response: str
+    citations: List[dict] = []
+
+
+class AnalyzeCaseResponse(BaseModel):
+    summary: str
+    strengths: List[str]
+    weaknesses: List[str]
+    recommendedStrategy: str
+    successProbability: float
+    predictedTimeline: str
+
+
+class SummarizeDocumentResponse(BaseModel):
+    summary: str
+    keyEntities: List[str]
+    effectiveDate: Optional[str] = None
+    clauses: List[dict] = []
