@@ -95,3 +95,19 @@ class SummarizeDocumentResponse(BaseModel):
     keyEntities: List[str]
     effectiveDate: Optional[str] = None
     clauses: List[dict] = []
+
+
+class DocumentCaseHighlight(BaseModel):
+    snippet: str
+    score: float
+    sentence_start: int
+    sentence_end: int
+
+
+class DocumentCaseInsightsResponse(BaseModel):
+    status: str
+    summary: str
+    highlights: List[DocumentCaseHighlight] = []
+    method: str = "embedding_extractive_v1"
+    warnings: List[str] = []
+    error_code: Optional[str] = None
