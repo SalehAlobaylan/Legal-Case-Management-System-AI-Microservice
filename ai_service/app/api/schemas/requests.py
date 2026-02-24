@@ -67,3 +67,11 @@ class AnalyzeCaseRequest(BaseModel):
 class SummarizeDocumentRequest(BaseModel):
     content: str
     file_name: str = "document"
+
+
+class DocumentCaseInsightsRequest(BaseModel):
+    case_text: str
+    document_text: str
+    document_name: str = "document"
+    top_k: int = 5
+    max_source_chars: int = 15000

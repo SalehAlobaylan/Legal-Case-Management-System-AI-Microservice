@@ -96,6 +96,8 @@ Find regulations related to a case. **For backend integration.**
 - **POST `/embed/`** - Generate embeddings for text
 - **POST `/similarity/`** - Rank documents by similarity (text-based)
 - **POST `/regulations/extract`** - Fetch + extract regulation text (parser + OCR fallback)
+- **POST `/documents/extract`** - Extract attachment text (shared parser/OCR pipeline)
+- **POST `/documents/case-insights`** - Generate case-focused summary + related snippets
 - **GET `/`** - Root endpoint
 - **GET `/health/`** - Health check
 
@@ -197,6 +199,11 @@ EXTRACTION_MAX_BYTES=15000000
 EXTRACTION_MAX_CHARS=120000
 OCR_MIN_TEXT_CHARS=400
 OCR_STRICT_MODE=false
+
+# Document case insights
+INSIGHTS_DEFAULT_TOP_K=5
+INSIGHTS_MAX_SOURCE_CHARS=15000
+INSIGHTS_SUMMARY_SENTENCES=4
 ```
 
 ---
@@ -271,9 +278,11 @@ The backend should implement:
 
 ---
 
-## ✅ What's New (v1.1.0)
+## ✅ What's New (v1.2.0)
 
 - ✨ **New Endpoint:** `POST /similarity/find-related` for backend integration
+- ✨ **New Endpoint:** `POST /documents/case-insights` for case-focused attachment insights
+- ✨ **New Endpoint:** `POST /documents/extract` for OCR-aware attachment extraction
 - 📝 **Comprehensive Docs:** 1500+ lines of integration guides
 - 🧪 **Test Scripts:** Integration test suite
 - 🔒 **Better Error Handling:** Descriptive messages & logging
@@ -314,23 +323,3 @@ Copyright © 2026 Legal Case Management System. All rights reserved.
 **Backend Integration:** Ready (see [INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md))
 
 **Ready to integrate?** Start with [QUICKSTART.md](QUICKSTART.md)!
-      __init__.py
-      embeddings.py        # Embedding backend + service
-      similarity.py        # SimilarityService (cosine similarity)
-    utils/
-      __init__.py
-      logger.py            # loguru configuration
-    tests/
-      __init__.py
-      test_api.py          # API-level tests
-      test_similarity_core.py  # Core similarity tests
-
-plans/
-  ai-microservice-implementation-plan.md  # Planning document (not used by code)
-
-Dockerfile
-docker-compose.yml
-requirements.txt
-pytest.ini
-.env.example
-.gitignore

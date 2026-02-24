@@ -98,6 +98,18 @@ class Settings(BaseSettings):
         default=False,
         validation_alias="OCR_STRICT_MODE",
     )
+    insights_default_top_k: int = Field(
+        default=5,
+        validation_alias="INSIGHTS_DEFAULT_TOP_K",
+    )
+    insights_max_source_chars: int = Field(
+        default=15000,
+        validation_alias="INSIGHTS_MAX_SOURCE_CHARS",
+    )
+    insights_summary_sentences: int = Field(
+        default=4,
+        validation_alias="INSIGHTS_SUMMARY_SENTENCES",
+    )
 
     @field_validator("cors_origins", mode="before")
     @classmethod
