@@ -23,6 +23,14 @@ class RegulationCandidate(BaseModel):
     content_text: Optional[str] = None
 
 
+class CaseFragment(BaseModel):
+    fragment_id: str
+    text: str
+    source: str = "case"
+    document_id: Optional[int] = None
+    document_name: Optional[str] = None
+
+
 class FindRelatedRequest(BaseModel):
     """
     Request to find regulations related to a case.
@@ -32,6 +40,7 @@ class FindRelatedRequest(BaseModel):
     regulations: List[RegulationCandidate]
     top_k: int = 10
     threshold: float = 0.3
+    case_fragments: Optional[List[CaseFragment]] = None
 
 
 class RegulationExtractRequest(BaseModel):
@@ -39,3 +48,22 @@ class RegulationExtractRequest(BaseModel):
     if_none_match: Optional[str] = None
     if_modified_since: Optional[str] = None
     max_chars: Optional[int] = None
+
+
+class ChatRequest(BaseModel):
+    message: str
+    context: Optional[dict] = None
+    history: Optional[List[dict]] = None
+
+
+class AnalyzeCaseRequest(BaseModel):
+    title: str
+    description: str = ""
+    case_type: str = "general"
+    status: str = "open"
+    court_jurisdiction: str = ""
+
+
+class SummarizeDocumentRequest(BaseModel):
+    content: str
+    file_name: str = "document"
