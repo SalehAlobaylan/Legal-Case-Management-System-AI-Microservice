@@ -26,8 +26,9 @@ The service provides AI-powered semantic matching between legal cases and regula
 
 ### 1. Start the Service
 ```bash
-cd ai_service
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+cd Legal-Case-Management-System-AI-Microservice
+pip install -r requirements.txt
+python -m uvicorn ai_service.app.main:app --host 0.0.0.0 --port 8000
 ```
 
 ### 2. View API Documentation
@@ -300,6 +301,8 @@ See [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) for details.
 | Model not found | Auto-downloads on first run (~560MB) |
 | No matches | Lower threshold, add regulation content |
 | Slow performance | First request loads model (normal) |
+| `ModuleNotFoundError: No module named 'app'` | Start from repo root with `python -m uvicorn ai_service.app.main:app ...` |
+| `ModuleNotFoundError: No module named 'bs4'` | Install dependencies with `pip install -r requirements.txt` |
 
 ---
 
