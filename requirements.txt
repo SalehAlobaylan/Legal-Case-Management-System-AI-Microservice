@@ -4,6 +4,9 @@ fastapi>=0.111,<1.0
 # ASGI server; 
 uvicorn[standard]>=0.30,<1.0
 
+# Required for file upload / form data support
+python-multipart>=0.0.9,<1.0
+
 # Typed settings from env/.env
 pydantic>=2.6,<3.0
 pydantic-settings>=2.2,<3.0
