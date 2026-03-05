@@ -10,6 +10,7 @@ from app.api.routes import (
     similarity,
     find_related,
     regulation_extract,
+    regulation_insights,
     document_extract,
     document_insights,
     assistant,
@@ -45,6 +46,7 @@ app.include_router(embeddings.router, tags=["embeddings"])
 app.include_router(similarity.router, tags=["similarity"])
 app.include_router(find_related.router, tags=["similarity"])
 app.include_router(regulation_extract.router, tags=["regulation-extraction"])
+app.include_router(regulation_insights.router, tags=["regulation-insights"])
 app.include_router(document_extract.router, tags=["document-extraction"])
 app.include_router(document_insights.router, tags=["document-insights"])
 app.include_router(assistant.router, tags=["assistant"])

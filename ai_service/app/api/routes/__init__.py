@@ -6,6 +6,7 @@ from . import (
     find_related,
     health,
     regulation_extract,
+    regulation_insights,
     similarity,
 )
 
@@ -17,5 +18,6 @@ __all__ = [
     "find_related",
     "health",
     "regulation_extract",
+    "regulation_insights",
     "similarity",
 ]
