@@ -45,6 +45,53 @@ def test_similarity_basic():
     assert isinstance(first["score"], float)
 
 
+def test_find_related_with_explainability_fields():
+    payload = {
+        "case_text": "Labor dispute regarding termination compensation",
+        "case_profile": {
+            "case_type": "labor",
+            "title": "Termination compensation claim",
+        },
+        "case_fragments": [
+            {
+                "fragment_id": "case:primary",
+                "text": "Employee terminated without compensation under labor contract",
+                "source": "case",
+            }
+        ],
+        "regulations": [
+            {
+                "id": 11,
+                "title": "Saudi Labor Law",
+                "category": "labor_law",
+                "regulation_version_id": 22,
+                "candidate_chunks": [
+                    {
+                        "chunk_id": 501,
+                        "chunk_index": 0,
+                        "line_start": 20,
+                        "line_end": 34,
+                        "article_ref": "Article 77",
+                        "text": "Termination without a valid reason requires compensation.",
+                    }
+                ],
+            }
+        ],
+        "top_k": 5,
+        "threshold": 0.3,
+        "strict_mode": False,
+    }
+    r = client.post("/similarity/find-related", json=payload)
+    assert r.status_code == 200
+    body = r.json()
+    assert "related_regulations" in body
+    if body["related_regulations"]:
+        first = body["related_regulations"][0]
+        assert "score_breakdown" in first
+        assert "line_matches" in first
+        assert isinstance(first.get("warnings", []), list)
+
+
 def test_regulation_summary_analysis_basic():
     payload = {
         "regulation_text": "يجب على المنشأة الالتزام بساعات العمل. يعاقب المخالف بغرامة مالية.",

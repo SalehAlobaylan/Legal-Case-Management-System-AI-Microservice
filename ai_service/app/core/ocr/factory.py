@@ -3,12 +3,15 @@ from __future__ import annotations
 from app.core.ocr.providers.alapi import AlapiOCRProvider
 from app.core.ocr.providers.base import OCRProvider
 from app.core.ocr.providers.none import NoneOCRProvider
+from app.core.ocr.providers.tesseract import TesseractOCRProvider
 
 
 def create_ocr_provider(name: str) -> OCRProvider:
     normalized = (name or "").strip().lower()
     if normalized == "alapi":
         return AlapiOCRProvider()
+    if normalized == "tesseract":
+        return TesseractOCRProvider()
     if normalized in ("none", "disabled", "parser_only", ""):
         return NoneOCRProvider()
 

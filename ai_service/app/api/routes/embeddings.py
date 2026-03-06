@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.core.embeddings import EmbeddingService
+from app.api.deps import get_embedding_service
 from app.api.schemas.requests import EmbedRequest
 from app.api.schemas.responses import EmbeddingResponse
 
@@ -27,7 +27,7 @@ async def embed_texts(payload: EmbedRequest) -> EmbeddingResponse:
         "count": 2
       }
     """
-    service = EmbeddingService()
+    service = get_embedding_service()
     vectors = service.embed_documents(payload.texts, normalize=payload.normalize)
 
     dim = len(vectors[0]) if vectors else 0

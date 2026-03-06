@@ -12,7 +12,7 @@ from app.api.schemas.responses import (
     DocumentCaseInsightsResponse,
 )
 from app.config import settings
-from app.core.embeddings import EmbeddingService
+from app.api.deps import get_embedding_service
 from app.utils.logger import logger
 
 router = APIRouter()
@@ -120,7 +120,7 @@ async def document_case_insights(
             error_code="empty_document",
         )
 
-    embedder = EmbeddingService()
+    embedder = get_embedding_service()
     case_embedding = embedder.embed_query(case_text, normalize=True)
     sentence_embeddings = embedder.embed_documents(
         [chunk.text for chunk in chunks], normalize=True

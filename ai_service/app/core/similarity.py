@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import List, Sequence, Tuple
 
 from app.core.embeddings import EmbeddingService
+from app.api.deps import get_embedding_service
 
 Score = float
 RankedDoc = Tuple[str, Score]
@@ -20,8 +21,8 @@ class SimilarityService:
     """
 
     def __init__(self, embedder: EmbeddingService | None = None) -> None:
-        # If no embedder is provided, fall back to the default one
-        self.embedder = embedder or EmbeddingService()
+        # If no embedder is provided, use the shared singleton
+        self.embedder = embedder or get_embedding_service()
 
     @staticmethod
     def _cosine(a: Sequence[float], b: Sequence[float]) -> float:
@@ -31,7 +32,9 @@ class SimilarityService:
         norm_b = (sum(x * x for x in b) ** 0.5) or 1.0
         return dot / (norm_a * norm_b)
 
-    def rank(self, queries: Sequence[str], corpus: Sequence[str], top_k: int = 5) -> RankedResults:
+    def rank(
+        self, queries: Sequence[str], corpus: Sequence[str], top_k: int = 5
+    ) -> RankedResults:
         """
         For each query, return a list of (doc, score) tuples sorted
         from most similar to least similar.
