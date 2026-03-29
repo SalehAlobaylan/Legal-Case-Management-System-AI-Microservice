@@ -4,12 +4,23 @@ Backend integration endpoint for finding related regulations.
 This endpoint is designed specifically for the backend API to call:
 - Input: Case text + list of regulations from database
 - Output: Ranked list of regulations with similarity scores and IDs
+
+Pipeline stages:
+  0.5. HyDE query expansion       (when hyde_enabled + request opt-in)
+  1.   embedding & unit build      (always)
+  2.   composite scoring           (always)
+  2.1. agentic retrieval expansion (when agentic_retrieval_enabled + request opt-in)
+  2.2. ColBERT late-interaction    (when colbert_enabled + request opt-in)
+  2.5. cross-encoder reranking     (when cross_encoder_enabled + request opt-in)
+  3.   LLM verification            (when gemini_enabled + request opt-in)
 """
 
 from __future__ import annotations
 
+import time
 from math import sqrt
 import re
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
@@ -20,8 +31,15 @@ from app.api.schemas.responses import (
     MatchEvidence,
     RelatedRegulation,
     ScoreBreakdown,
+    VerificationDetail,
 )
 from app.api.deps import get_embedding_service
+from app.config import settings
+from app.core.agentic_retriever import analyze_gaps_and_generate_queries
+from app.core.hyde import generate_hypothetical_regulation
+from app.core.llm_verifier import verify_candidates, blend_scores
+from app.core.colbert_retriever import get_colbert_service
+from app.core.reranker import get_reranker_service
 from app.utils.logger import logger
 
 router = APIRouter()
@@ -191,9 +209,81 @@ def _resolve_scoring_profile(
     }
 
 
+def _should_run_llm_verification(payload: FindRelatedRequest) -> bool:
+    """Determine if LLM verification should run for this request."""
+    if payload.enable_llm_verification is not None:
+        return payload.enable_llm_verification and settings.gemini_enabled
+    return settings.gemini_enabled
+
+
+def _should_run_cross_encoder(payload: FindRelatedRequest) -> bool:
+    """Determine if cross-encoder reranking should run for this request."""
+    if payload.enable_cross_encoder is not None:
+        return payload.enable_cross_encoder and settings.cross_encoder_enabled
+    return settings.cross_encoder_enabled
+
+
+def _should_run_hyde(payload: FindRelatedRequest) -> bool:
+    """Determine if HyDE query expansion should run for this request."""
+    if payload.enable_hyde is not None:
+        return payload.enable_hyde and settings.hyde_enabled
+    return settings.hyde_enabled
+
+
+def _should_run_agentic(payload: FindRelatedRequest) -> bool:
+    """Determine if agentic retrieval expansion should run for this request."""
+    if payload.enable_agentic is not None:
+        return payload.enable_agentic and settings.agentic_retrieval_enabled
+    return settings.agentic_retrieval_enabled
+
+
+def _should_run_colbert(payload: FindRelatedRequest) -> bool:
+    """Determine if ColBERT late-interaction reranking should run."""
+    if payload.enable_colbert is not None:
+        return payload.enable_colbert and settings.colbert_enabled
+    return settings.colbert_enabled
+
+
+def _build_pipeline_label(
+    use_reranker: bool, use_llm: bool, use_hyde: bool,
+    use_agentic: bool = False, use_colbert: bool = False,
+) -> str:
+    """Build a descriptive pipeline label from enabled stages."""
+    parts = ["composite"]
+    if use_hyde:
+        parts.insert(0, "hyde")
+    if use_agentic:
+        parts.append("agentic")
+    if use_colbert:
+        parts.append("colbert")
+    if use_reranker:
+        parts.append("rerank")
+    if use_llm:
+        parts.append("gemini")
+    return "_".join(parts) + "_v1"
+
+
+def _best_excerpt(units: list[RegulationUnit], max_chars: int = 2000) -> str:
+    """Build a representative text excerpt from regulation units."""
+    parts: list[str] = []
+    total = 0
+    for u in units:
+        text = u.get("text", "")
+        if total + len(text) > max_chars:
+            remaining = max_chars - total
+            if remaining > 50:
+                parts.append(text[:remaining])
+            break
+        parts.append(text)
+        total += len(text)
+    return "\n".join(parts)
+
+
 @router.post("/similarity/find-related", response_model=FindRelatedResponse)
 async def find_related_regulations(payload: FindRelatedRequest) -> FindRelatedResponse:
     try:
+        t_start = time.perf_counter()
+
         if not payload.case_text or not payload.case_text.strip():
             raise HTTPException(status_code=400, detail="case_text cannot be empty")
 
@@ -216,8 +306,18 @@ async def find_related_regulations(payload: FindRelatedRequest) -> FindRelatedRe
                 )
             ]
 
+        use_llm = _should_run_llm_verification(payload)
+        use_reranker = _should_run_cross_encoder(payload)
+        use_hyde = _should_run_hyde(payload)
+        use_agentic = _should_run_agentic(payload)
+        use_colbert = _should_run_colbert(payload)
+        pipeline_label = _build_pipeline_label(
+            use_reranker, use_llm, use_hyde, use_agentic, use_colbert
+        )
+        pipeline_warnings: list[str] = []
+
         logger.info(
-            "Finding related regulations",
+            "find_related:start",
             extra={
                 "case_text_len": len(payload.case_text),
                 "fragments_count": len(fragments),
@@ -225,10 +325,41 @@ async def find_related_regulations(payload: FindRelatedRequest) -> FindRelatedRe
                 "top_k": payload.top_k,
                 "threshold": payload.threshold,
                 "strict_mode": payload.strict_mode,
+                "pipeline": pipeline_label,
             },
         )
 
         scoring_profile = _resolve_scoring_profile(payload)
+
+        # ---- Stage 0.5: HyDE query expansion (optional) ----
+        hyde_fragment: CaseFragment | None = None
+        if use_hyde:
+            t_hyde = time.perf_counter()
+            hyde_text, hyde_warnings = await generate_hypothetical_regulation(
+                payload.case_text
+            )
+            pipeline_warnings.extend(hyde_warnings)
+
+            if hyde_text:
+                hyde_fragment = CaseFragment(
+                    fragment_id="hyde_hypothetical",
+                    text=hyde_text,
+                    source="hyde",
+                )
+                fragments.append(hyde_fragment)
+
+            hyde_ms = (time.perf_counter() - t_hyde) * 1000
+            logger.info(
+                "find_related:hyde_done",
+                extra={
+                    "hyde_generated": hyde_text is not None,
+                    "hyde_text_len": len(hyde_text) if hyde_text else 0,
+                    "stage_hyde_ms": round(hyde_ms, 1),
+                },
+            )
+
+        # ---- Stage 1: build regulation units & embed ----
+        t_stage1 = time.perf_counter()
 
         regulation_units: dict[int, list[RegulationUnit]] = {}
         regulation_warnings: dict[int, list[str]] = {}
@@ -258,6 +389,8 @@ async def find_related_regulations(payload: FindRelatedRequest) -> FindRelatedRe
                 related_regulations=[],
                 query_length=len(payload.case_text),
                 candidates_count=len(payload.regulations),
+                pipeline=pipeline_label,
+                pipeline_warnings=pipeline_warnings or None,
             )
 
         embedder = get_embedding_service()
@@ -271,6 +404,16 @@ async def find_related_regulations(payload: FindRelatedRequest) -> FindRelatedRe
             embedded_units_by_reg.setdefault(reg_id, []).append(
                 (regulation_units[reg_id][unit_index], unit_embeddings[embedding_index])
             )
+
+        stage1_ms = (time.perf_counter() - t_stage1) * 1000
+
+        # ---- Stage 2: composite scoring ----
+        t_stage2 = time.perf_counter()
+
+        # Count of real (non-HyDE) fragments for support coverage calculation
+        real_fragment_count = sum(
+            1 for f in fragments if f.fragment_id != "hyde_hypothetical"
+        )
 
         related_regulations: list[RelatedRegulation] = []
         strict_mode = bool(payload.strict_mode)
@@ -303,12 +446,14 @@ async def find_related_regulations(payload: FindRelatedRequest) -> FindRelatedRe
                 item for item in pair_scores if float(item["score"]) >= support_floor
             ]
 
+            # Support coverage: only count real fragments (exclude HyDE)
             supported_fragment_ids = {
                 item["fragment"].fragment_id
                 for item in supporting_pairs  # type: ignore[index]
+                if item["fragment"].fragment_id != "hyde_hypothetical"
             }
             support_coverage = float(
-                len(supported_fragment_ids) / max(1, len(fragments))
+                len(supported_fragment_ids) / max(1, real_fragment_count)
             )
             lexical_overlap = max(
                 (
@@ -422,21 +567,339 @@ async def find_related_regulations(payload: FindRelatedRequest) -> FindRelatedRe
                         strong_support_count=strong_support_count,
                     ),
                     warnings=regulation_warnings.get(reg_id, []),
+                    pipeline_stage="composite",
                 )
             )
 
         related_regulations.sort(key=lambda item: item.similarity_score, reverse=True)
+
+        stage2_ms = (time.perf_counter() - t_stage2) * 1000
+        retrieval_count = len(related_regulations)
+
+        logger.info(
+            "find_related:composite_done",
+            extra={
+                "retrieval_candidates": retrieval_count,
+                "stage1_embed_ms": round(stage1_ms, 1),
+                "stage2_score_ms": round(stage2_ms, 1),
+            },
+        )
+
+        # ---- Stage 2.1: Agentic retrieval expansion (optional, experimental) ----
+        agentic_rounds_run: int = 0
+
+        if use_agentic and related_regulations:
+            t_agentic = time.perf_counter()
+
+            # Summarize current results for gap analysis
+            found_summary: list[dict[str, Any]] = [
+                {
+                    "title": rr.title,
+                    "category": rr.category or "",
+                    "score": rr.similarity_score,
+                }
+                for rr in related_regulations[:15]
+            ]
+
+            refined_queries, agentic_warnings = await analyze_gaps_and_generate_queries(
+                payload.case_text, found_summary
+            )
+            pipeline_warnings.extend(agentic_warnings)
+
+            if refined_queries:
+                existing_reg_ids = {rr.regulation_id for rr in related_regulations}
+
+                for round_idx, query in enumerate(refined_queries):
+                    # Embed the refined query
+                    query_embedding = embedder.embed_documents(
+                        [query], normalize=True
+                    )[0]
+
+                    # Score the query against all regulation units
+                    for reg_id, unit_emb_list in embedded_units_by_reg.items():
+                        if reg_id in existing_reg_ids:
+                            continue  # Already scored
+
+                        best_score = 0.0
+                        best_unit: RegulationUnit | None = None
+                        for unit, unit_embedding in unit_emb_list:
+                            score = _cosine(query_embedding, unit_embedding)
+                            if score > best_score:
+                                best_score = score
+                                best_unit = unit
+
+                        # Only add if above a relaxed threshold
+                        agentic_threshold = max(
+                            0.0, float(payload.threshold) * 0.8
+                        )
+                        if best_score < agentic_threshold or best_unit is None:
+                            continue
+
+                        metadata = regulation_metadata.get(reg_id, {})
+                        category_prior = _category_prior(
+                            payload.case_profile.case_type
+                            if payload.case_profile
+                            else None,
+                            metadata.get("category"),
+                        )
+
+                        # Simplified scoring for agentic-discovered candidates
+                        final_score = float(
+                            float(scoring_profile["semantic_weight"]) * best_score
+                            + float(scoring_profile["category_weight"]) * category_prior
+                        )
+
+                        if final_score < max(0.0, float(payload.threshold) * 0.7):
+                            continue
+
+                        lm = LineMatch(
+                            case_fragment_id=f"agentic_round_{round_idx}",
+                            case_snippet=_clip(query),
+                            regulation_chunk_id=best_unit.get("chunk_id"),
+                            regulation_snippet=_clip(best_unit["text"]),
+                            line_start=best_unit.get("line_start"),
+                            line_end=best_unit.get("line_end"),
+                            article_ref=best_unit.get("article_ref"),
+                            pair_score=best_score,
+                            contribution=1.0,
+                        )
+
+                        related_regulations.append(
+                            RelatedRegulation(
+                                regulation_id=reg_id,
+                                matched_regulation_version_id=metadata.get(
+                                    "regulation_version_id"
+                                ),
+                                title=(
+                                    metadata.get("title")
+                                    or f"Regulation #{reg_id}"
+                                ),
+                                category=metadata.get("category"),
+                                similarity_score=final_score,
+                                evidence=[],
+                                line_matches=[lm],
+                                score_breakdown=ScoreBreakdown(
+                                    semantic_max=best_score,
+                                    support_coverage=0.0,
+                                    lexical_overlap=0.0,
+                                    category_prior=category_prior,
+                                    final_score=final_score,
+                                    has_case_support=False,
+                                    strong_support_count=0,
+                                ),
+                                warnings=(
+                                    regulation_warnings.get(reg_id, [])
+                                    + ["agentic_discovery"]
+                                ),
+                                pipeline_stage="agentic",
+                            )
+                        )
+                        existing_reg_ids.add(reg_id)
+
+                    agentic_rounds_run += 1
+
+                # Re-sort after agentic expansion
+                related_regulations.sort(
+                    key=lambda item: item.similarity_score, reverse=True
+                )
+
+            agentic_ms = (time.perf_counter() - t_agentic) * 1000
+            logger.info(
+                "find_related:agentic_done",
+                extra={
+                    "agentic_rounds": agentic_rounds_run,
+                    "agentic_queries": len(refined_queries),
+                    "candidates_after_agentic": len(related_regulations),
+                    "stage_agentic_ms": round(agentic_ms, 1),
+                },
+            )
+
+        # ---- Stage 2.2: ColBERT late-interaction reranking (optional) ----
+        colbert_count: int | None = None
+
+        if use_colbert and related_regulations:
+            t_colbert = time.perf_counter()
+
+            colbert_svc = get_colbert_service()
+            colbert_top_n = settings.colbert_top_n
+
+            # Build (case_text, best_regulation_excerpt) pairs
+            colbert_docs: list[str] = []
+            for rr in related_regulations:
+                reg_id = rr.regulation_id
+                units = regulation_units.get(reg_id, [])
+                colbert_docs.append(_best_excerpt(units))
+
+            colbert_reranked = colbert_svc.rerank(
+                query=payload.case_text,
+                documents=colbert_docs,
+                top_n=colbert_top_n,
+            )
+
+            # Apply ColBERT scores and reorder
+            colbert_regulations: list[RelatedRegulation] = []
+            for original_idx, colbert_score in colbert_reranked:
+                rr = related_regulations[original_idx]
+                rr.colbert_score = colbert_score
+                if rr.pipeline_stage and "colbert" not in rr.pipeline_stage:
+                    rr.pipeline_stage = rr.pipeline_stage + "+colbert"
+                else:
+                    rr.pipeline_stage = "composite+colbert"
+                colbert_regulations.append(rr)
+
+            related_regulations = colbert_regulations
+            colbert_count = len(related_regulations)
+
+            colbert_ms = (time.perf_counter() - t_colbert) * 1000
+            logger.info(
+                "find_related:colbert_done",
+                extra={
+                    "colbert_input": retrieval_count,
+                    "colbert_output": colbert_count,
+                    "stage_colbert_ms": round(colbert_ms, 1),
+                },
+            )
+
+        # ---- Stage 2.5: Cross-encoder reranking (optional) ----
+        reranker_count: int | None = None
+
+        if use_reranker and related_regulations:
+            t_rerank = time.perf_counter()
+
+            reranker = get_reranker_service()
+            rerank_top_n = settings.cross_encoder_top_n
+
+            # Build (case_text, best_regulation_excerpt) pairs
+            rerank_docs: list[str] = []
+            for rr in related_regulations:
+                reg_id = rr.regulation_id
+                units = regulation_units.get(reg_id, [])
+                rerank_docs.append(_best_excerpt(units))
+
+            reranked = reranker.rerank(
+                query=payload.case_text,
+                documents=rerank_docs,
+                top_n=rerank_top_n,
+            )
+
+            # Apply reranker scores and reorder
+            reranked_regulations: list[RelatedRegulation] = []
+            for original_idx, reranker_score in reranked:
+                rr = related_regulations[original_idx]
+                rr.reranker_score = reranker_score
+                rr.pipeline_stage = "composite+rerank"
+                reranked_regulations.append(rr)
+
+            related_regulations = reranked_regulations
+            reranker_count = len(related_regulations)
+
+            rerank_ms = (time.perf_counter() - t_rerank) * 1000
+            logger.info(
+                "find_related:rerank_done",
+                extra={
+                    "rerank_input": retrieval_count,
+                    "rerank_output": reranker_count,
+                    "stage_rerank_ms": round(rerank_ms, 1),
+                },
+            )
+
+        # ---- Stage 3: LLM verification (optional) ----
+        llm_approved_count: int | None = None
+
+        if use_llm and related_regulations:
+            t_stage3 = time.perf_counter()
+            top_n = min(settings.gemini_top_n_candidates, len(related_regulations))
+            llm_candidates: list[dict[str, Any]] = []
+            for rr in related_regulations[:top_n]:
+                reg_id = rr.regulation_id
+                units = regulation_units.get(reg_id, [])
+                llm_candidates.append({
+                    "regulation_id": reg_id,
+                    "title": rr.title,
+                    "category": rr.category or "",
+                    "excerpt": _best_excerpt(units),
+                })
+
+            verification_results, llm_warnings = await verify_candidates(
+                payload.case_text, llm_candidates
+            )
+            pipeline_warnings.extend(llm_warnings)
+
+            if verification_results:
+                # Apply verification metadata and re-score
+                for rr in related_regulations[:top_n]:
+                    v = verification_results.get(rr.regulation_id)
+                    if v:
+                        rr.verification = VerificationDetail(
+                            status="approved" if v["applicable"] else "rejected",
+                            confidence=v.get("confidence"),
+                            explanation_ar=v.get("explanation_ar"),
+                            relevant_articles=v.get("relevant_articles"),
+                        )
+                        blended, llm_score = blend_scores(
+                            rr.similarity_score, v
+                        )
+                        rr.similarity_score = blended
+                        rr.verification.llm_score = llm_score
+                        # Build stage label reflecting all active stages
+                        stage_parts = ["composite"]
+                        if rr.reranker_score is not None:
+                            stage_parts.append("rerank")
+                        stage_parts.append("gemini")
+                        rr.pipeline_stage = "+".join(stage_parts)
+                    else:
+                        rr.verification = VerificationDetail(status="skipped")
+
+                # Filter out rejected candidates
+                approved = [
+                    rr for rr in related_regulations
+                    if rr.verification is None
+                    or rr.verification.status != "rejected"
+                ]
+                llm_approved_count = sum(
+                    1 for rr in approved
+                    if rr.verification and rr.verification.status == "approved"
+                )
+                related_regulations = approved
+                # Re-sort after score blending
+                related_regulations.sort(
+                    key=lambda item: item.similarity_score, reverse=True
+                )
+            else:
+                # Fallback: keep original ranking
+                pipeline_warnings.append("gemini_fallback_used")
+
+            stage3_ms = (time.perf_counter() - t_stage3) * 1000
+            logger.info(
+                "find_related:llm_done",
+                extra={
+                    "llm_candidates_sent": top_n,
+                    "llm_approved": llm_approved_count,
+                    "stage3_llm_ms": round(stage3_ms, 1),
+                    "llm_warnings": llm_warnings,
+                },
+            )
+
+        # ---- Final: truncate and return ----
         safe_top_k = max(1, payload.top_k)
         related_regulations = related_regulations[:safe_top_k]
 
+        total_ms = (time.perf_counter() - t_start) * 1000
         logger.info(
-            f"Found {len(related_regulations)} related regulations",
+            "find_related:done",
             extra={
                 "case_text_len": len(payload.case_text),
                 "fragments_count": len(fragments),
                 "total_candidates": len(payload.regulations),
-                "matches": len(related_regulations),
+                "retrieval_candidates": retrieval_count,
+                "agentic_rounds": agentic_rounds_run,
+                "colbert_candidates": colbert_count,
+                "reranker_candidates": reranker_count,
+                "llm_approved": llm_approved_count,
+                "matches_returned": len(related_regulations),
                 "strict_mode": strict_mode,
+                "pipeline": pipeline_label,
+                "total_ms": round(total_ms, 1),
             },
         )
 
@@ -444,6 +907,8 @@ async def find_related_regulations(payload: FindRelatedRequest) -> FindRelatedRe
             related_regulations=related_regulations,
             query_length=len(payload.case_text),
             candidates_count=len(payload.regulations),
+            pipeline=pipeline_label,
+            pipeline_warnings=pipeline_warnings or None,
         )
     except HTTPException:
         raise

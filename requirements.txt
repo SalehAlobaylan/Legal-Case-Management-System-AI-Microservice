@@ -52,3 +52,6 @@ torch>=2.2.0
 # Ai model loader
 sentence-transformers==3.0.1
 
+# Gemini LLM verification (Phase 1)
+google-generativeai>=0.7,<1.0
+

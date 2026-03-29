@@ -1,0 +1,17 @@
+[
+  {
+    "case_id": "eval_labor_termination",
+    "expected_regulation_ids": [101, 103],
+    "expected_top_1_id": 101,
+    "not_expected_ids": [102, 104],
+    "notes": "Labor termination case should match Saudi Labor Law (101) and Labor Dispute Resolution (103). Should NOT match Commercial Court (102) or Administrative Law (104)."
+  },
+  {
+    "case_id": "eval_commercial_contract",
+    "expected_regulation_ids": [201],
+    "expected_top_1_id": 201,
+    "not_expected_ids": [202],
+    "expected_articles": ["Article 15", "Article 20"],
+    "notes": "Commercial contract breach should match Commercial Court Law (201). Should NOT match Labor Law (202). Civil Transactions (203) is a borderline acceptable match."
+  }
+]
