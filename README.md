@@ -196,8 +196,27 @@ ai_service/
 │   └── utils/
 │       └── logger.py
 │
+├── scripts/                         # BGE fine-tuning pipeline
+│   ├── _shared/
+│   │   ├── arabic_utils.py          # Arabic normalization + number word conversion
+│   │   ├── db_client.py             # Direct PostgreSQL queries
+│   │   └── paths.py                 # Shared path constants
+│   ├── scrape_moj_judgments.py      # Step 1: Scrape MOJ judicial decisions API
+│   ├── extract_citations.py         # Step 2: Extract regulation citations from text
+│   ├── qa_sample.py                 # Step 2b: Sample citations for manual QA review
+│   ├── build_training_triplets.py   # Step 3: Build (query, positive, negative) triplets
+│   └── fine_tune_bge.py             # Step 4: Fine-tune BGE-M3 on Saudi legal data
+│
+├── data/                            # Pipeline outputs (gitignored)
+│   ├── raw/                         # judgments.jsonl
+│   ├── citations/                   # citations.jsonl, citations_stats.json
+│   ├── triplets/                    # train.jsonl, val.jsonl, stats.json
+│   └── qa/                          # qa_sample.csv
+│
 ├── models/
-│   └── models--BAAI--bge-m3/        # Pre-downloaded embedding model
+│   ├── models--BAAI--bge-m3/        # Pre-downloaded base model
+│   ├── bge-m3-saudi-legal-v1/       # Fine-tuned model output (gitignored)
+│   └── evaluation_report.json       # Baseline vs fine-tuned metrics
 │
 ├── docker-compose.yml
 ├── Dockerfile
@@ -205,6 +224,84 @@ ai_service/
 ├── pytest.ini
 └── README.md
 ```
+
+---
+
+## 🧠 BGE-M3 Fine-Tuning Pipeline
+
+Fine-tune `BAAI/bge-m3` on real Saudi judicial decisions to improve case-to-regulation retrieval quality. The pipeline scrapes the MOJ (Ministry of Justice) public API, extracts regulation citations from judgment text, builds training triplets, and trains the model.
+
+**Hardware requirement:** NVIDIA GPU with ≥ 8GB VRAM (tested on RTX 4070 Ti Super, 16GB).
+
+### Prerequisites
+
+Add the following to your `.env` file (same PostgreSQL DB the backend uses):
+
+```env
+DATABASE_URL=postgresql://user:pass@host:5432/dbname
+```
+
+Install the pipeline dependencies (already in `requirements.txt`):
+
+```bash
+pip install psycopg2-binary accelerate tqdm requests
+```
+
+### Running the Pipeline
+
+```bash
+cd Legal-Case-Management-System-AI-Microservice
+
+# Step 1 — Scrape MOJ judicial decisions (~4 hrs for all 31K, use --max-pages 5 to test first)
+python -m ai_service.scripts.scrape_moj_judgments --max-pages 5
+python -m ai_service.scripts.scrape_moj_judgments          # full run
+
+# Step 2 — Extract regulation citations from judgment text (~5-15 min)
+python -m ai_service.scripts.extract_citations
+
+# Step 2b — Sample 200 citations for manual QA review before training
+python -m ai_service.scripts.qa_sample
+# >>> Open ai_service/data/qa/qa_sample.csv and verify matches look correct <<<
+
+# Step 3 — Build (query, positive, negative) training triplets (~30-60 min)
+python -m ai_service.scripts.build_training_triplets
+
+# Step 4 — Fine-tune BGE-M3 (~2-6 hrs on GPU)
+python -m ai_service.scripts.fine_tune_bge
+```
+
+Each step reads the previous step's output. All intermediate files are saved to `ai_service/data/` (gitignored). Resume is supported — interrupted scrape runs continue from where they left off.
+
+### CLI Options
+
+| Script | Key flags |
+|--------|-----------|
+| `scrape_moj_judgments` | `--max-pages N`, `--delay 0.5`, `--court-type 1`, `--start-page N` |
+| `extract_citations` | `--input`, `--output`, `--regulations-cache` |
+| `qa_sample` | `--n 200`, `--seed 42` |
+| `build_training_triplets` | `--hard-neg-k 10`, `--max-hard-neg 3`, `--val-ratio 0.2`, `--max-query-chars 1500` |
+| `fine_tune_bge` | `--batch-size 8`, `--epochs 3`, `--lr 2e-5`, `--max-seq-length 512`, `--no-fp16` |
+
+### Verifying Results
+
+| Step | Check |
+|------|-------|
+| After Step 1 | `wc -l ai_service/data/raw/judgments.jsonl` — expect thousands of lines |
+| After Step 2 | `ai_service/data/citations/citations_stats.json` — expect 20–40% citation rate |
+| After Step 2b | Review `qa_sample.csv` — verify regulation matches make sense before continuing |
+| After Step 3 | `ai_service/data/triplets/stats.json` — expect 5,000+ training triplets |
+| After Step 4 | `ai_service/models/evaluation_report.json` — fine-tuned Recall@10 should beat baseline |
+
+### Deploying the Fine-Tuned Model
+
+No code changes needed. Update your `.env`:
+
+```env
+EMBEDDING_MODEL_NAME=./ai_service/models/bge-m3-saudi-legal-v1
+EMBEDDING_DEVICE=cuda
+```
+
+The existing `EmbeddingService` (`app/core/embeddings.py`) accepts both HuggingFace model IDs and local paths — the fine-tuned model loads automatically on the next service restart. After restarting, re-embed all regulation chunks via the backend's reindex endpoint to use the updated embeddings.
 
 ---
 

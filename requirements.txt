@@ -55,3 +55,16 @@ sentence-transformers==3.0.1
 # Gemini LLM verification (Phase 1)
 google-generativeai>=0.7,<1.0
 
+# --- BGE fine-tuning pipeline (Phase 2) ---
+# Direct PostgreSQL access for training data queries
+psycopg2-binary>=2.9,<3.0
+
+# Training optimization (fp16, gradient accumulation)
+accelerate>=0.30,<1.0
+
+# Progress bars for long-running scripts
+tqdm>=4.66,<5.0
+
+# HTTP requests for MOJ API scraping
+requests>=2.31,<3.0
+

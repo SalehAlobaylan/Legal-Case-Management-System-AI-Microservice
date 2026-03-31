@@ -17,3 +17,7 @@ ENV/
 
 # Project-specific
 models/
+
+# Fine-tuning pipeline data (large files, not for git)
+ai_service/data/
+ai_service/models/
