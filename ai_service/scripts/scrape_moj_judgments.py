@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 import time
 from pathlib import Path
 
@@ -43,12 +42,67 @@ from ai_service.scripts._shared.paths import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+# MOJ gateway returns HTTP 200 + HTML "Request Rejected" for non-browser
+# User-Agents on get-details; judgements-list is more permissive.
+_BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
+
+
+def _moj_session_headers() -> dict[str, str]:
+    # Do not set Content-Type on the session: it would be sent on GET
+    # (get-details) and MOJ's WAF rejects that with HTML "Request Rejected".
+    return {
+        "Accept": "application/json",
+        "User-Agent": _BROWSER_UA,
+        "Accept-Language": "ar-SA,ar;q=0.9,en;q=0.8",
+        "Origin": "https://laws.moj.gov.sa",
+        "Referer": "https://laws.moj.gov.sa/",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-site",
+    }
+
+
 _SESSION = requests.Session()
-_SESSION.headers.update({
-    "Accept": "application/json",
-    "Content-Type": "application/json",
-    "User-Agent": "SilahLegal-DataPipeline/1.0",
-})
+_SESSION.headers.update(_moj_session_headers())
+
+
+def _reset_moj_session() -> None:
+    """New TCP pool + cookies; helps after sustained WAF / rate-limit blocks."""
+    global _SESSION
+    _SESSION.close()
+    _SESSION = requests.Session()
+    _SESSION.headers.update(_moj_session_headers())
+
+_REQUEST_TIMEOUT = 60
+
+
+def _parse_moj_json(resp: requests.Response) -> dict:
+    """Raise if the body is WAF HTML, empty, or not JSON (common when rate-limited)."""
+    resp.raise_for_status()
+    text = (resp.text or "").strip()
+    head = text[:500].lower()
+    if not text or text.startswith("<") or "request rejected" in head:
+        raise RuntimeError(
+            "non-JSON response (rate limit / WAF?): "
+            + repr(text[:160])
+        )
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"invalid JSON: {e}") from e
+
+
+def _backoff_seconds(attempt: int, cap: int = 120) -> int:
+    """attempt is 0-based; first retry waits ~4s."""
+    return min(cap, 4 * (2**attempt))
+
+
+def _is_waf_block_error(exc: BaseException) -> bool:
+    s = str(exc).lower()
+    return "request rejected" in s or "non-json response" in s
 
 
 def _strip_html(html: str | None) -> str:
@@ -69,23 +123,81 @@ def _fetch_list_page(
     page: int,
     page_size: int = 12,
     court_type: int | None = None,
+    max_attempts: int = 8,
 ) -> dict:
-    """Fetch a single page from the judgements-list API."""
+    """Fetch a single page from the judgements-list API with retries."""
     body: dict = {"pageNumber": page, "pageSize": page_size}
     if court_type is not None:
         body["courtType"] = court_type
 
-    resp = _SESSION.post(MOJ_LIST_URL, json=body, timeout=30)
-    resp.raise_for_status()
-    return resp.json()
+    last_err: Exception | None = None
+    for attempt in range(max_attempts):
+        try:
+            resp = _SESSION.post(
+                MOJ_LIST_URL, json=body, timeout=_REQUEST_TIMEOUT
+            )
+            return _parse_moj_json(resp)
+        except Exception as e:
+            last_err = e
+            if attempt >= max_attempts - 1:
+                break
+            wait = _backoff_seconds(attempt)
+            logger.warning(
+                f"judgements-list page={page} attempt {attempt + 1}/"
+                f"{max_attempts} failed ({e}); sleeping {wait}s"
+            )
+            time.sleep(wait)
+    assert last_err is not None
+    raise last_err
 
 
-def _fetch_details(judgment_id: str) -> dict:
-    """Fetch full details for a single judgment."""
+def _fetch_details_attempts(
+    judgment_id: str,
+    max_attempts: int,
+) -> dict:
+    """Full get-details retry loop using the current global session."""
     params = {"id": judgment_id, "lang": "ar", "IdentityNumber": ""}
-    resp = _SESSION.get(MOJ_DETAILS_URL, params=params, timeout=30)
-    resp.raise_for_status()
-    return resp.json()
+    last_err: Exception | None = None
+    for attempt in range(max_attempts):
+        try:
+            resp = _SESSION.get(
+                MOJ_DETAILS_URL, params=params, timeout=_REQUEST_TIMEOUT
+            )
+            return _parse_moj_json(resp)
+        except Exception as e:
+            last_err = e
+            if attempt >= max_attempts - 1:
+                break
+            wait = _backoff_seconds(attempt, cap=90)
+            logger.warning(
+                f"get-details id={judgment_id[:20]}... "
+                f"attempt {attempt + 1}/{max_attempts} failed ({e}); "
+                f"sleeping {wait}s"
+            )
+            time.sleep(wait)
+    assert last_err is not None
+    raise last_err
+
+
+def _fetch_details(
+    judgment_id: str,
+    max_attempts: int = 7,
+    waf_cooldown: float = 600.0,
+) -> dict:
+    """Fetch details; optional long cooldown + fresh session if WAF blocks."""
+    try:
+        return _fetch_details_attempts(judgment_id, max_attempts)
+    except Exception as e:
+        if waf_cooldown <= 0 or not _is_waf_block_error(e):
+            raise
+        logger.warning(
+            f"get-details WAF block for id={judgment_id[:20]}... "
+            f"after {max_attempts} attempts; sleeping {waf_cooldown:.0f}s, "
+            "resetting HTTP session, then retrying the same backoff cycle once"
+        )
+        time.sleep(waf_cooldown)
+        _reset_moj_session()
+        return _fetch_details_attempts(judgment_id, max_attempts)
 
 
 def _load_existing_ids(output_path: Path) -> set[str]:
@@ -138,8 +250,28 @@ def main() -> None:
     parser.add_argument(
         "--delay",
         type=float,
-        default=0.5,
-        help="Delay between detail requests in seconds. Default: 0.5",
+        default=0.75,
+        help="Delay between detail requests in seconds. Default: 0.75",
+    )
+    parser.add_argument(
+        "--page-gap",
+        type=float,
+        default=2.0,
+        help="Pause after each list page (reduces rate limits). Default: 2.0",
+    )
+    parser.add_argument(
+        "--list-fail-sleep",
+        type=float,
+        default=60.0,
+        help="Seconds to sleep after a list page fails all retries. Default: 60",
+    )
+    parser.add_argument(
+        "--waf-cooldown",
+        type=float,
+        default=600.0,
+        help="After get-details hits WAF for all short retries, sleep this many "
+        "seconds, reset the session, then run one full retry cycle. 0=off. "
+        "Default: 600",
     )
     parser.add_argument(
         "--court-type",
@@ -199,6 +331,7 @@ def main() -> None:
             except Exception as e:
                 logger.error(f"Failed to fetch page {page_num}: {e}")
                 error_count += 1
+                time.sleep(args.list_fail_sleep)
                 continue
 
             judgments = page_data.get("model", {}).get(
@@ -219,7 +352,10 @@ def main() -> None:
 
                 # Fetch details
                 try:
-                    details_resp = _fetch_details(jid)
+                    details_resp = _fetch_details(
+                        jid,
+                        waf_cooldown=args.waf_cooldown,
+                    )
                     detail = details_resp.get("model", {})
                 except Exception as e:
                     logger.warning(f"Failed details for {jid}: {e}")
@@ -229,7 +365,8 @@ def main() -> None:
                         "page": page_num,
                     }, ensure_ascii=False) + "\n")
                     error_count += 1
-                    time.sleep(args.delay)
+                    # Longer pause after detail failures (often rate-limit bursts)
+                    time.sleep(max(args.delay, 8.0))
                     continue
 
                 # Extract and clean
@@ -264,8 +401,7 @@ def main() -> None:
 
                 time.sleep(args.delay)
 
-            # Small pause between pages
-            time.sleep(0.1)
+            time.sleep(args.page_gap)
 
     logger.info(
         f"Done! Scraped: {scraped_count}, Skipped: {skipped_count}, "
