@@ -111,3 +111,44 @@ class DocumentCaseInsightsResponse(BaseModel):
     method: str = "embedding_extractive_v1"
     warnings: List[str] = []
     error_code: Optional[str] = None
+
+
+class RegulationInsightBullet(BaseModel):
+    title: str
+    description: str
+    severity: Optional[str] = None
+
+
+class RegulationKeyDate(BaseModel):
+    label: str
+    value: str
+    source: Optional[str] = None
+
+
+class RegulationCitation(BaseModel):
+    snippet: str
+    section_ref: Optional[str] = None
+    relevance: Optional[float] = None
+
+
+class RegulationSummaryAnalysisResponse(BaseModel):
+    status: str
+    summary: str
+    obligations: List[RegulationInsightBullet] = []
+    risk_flags: List[RegulationInsightBullet] = []
+    key_dates: List[RegulationKeyDate] = []
+    citations: List[RegulationCitation] = []
+    method: str = "regulation_summary_analysis_v1"
+    warnings: List[str] = []
+    error_code: Optional[str] = None
+
+
+class RegulationAmendmentImpactResponse(BaseModel):
+    status: str
+    what_changed: List[RegulationInsightBullet] = []
+    legal_impact: List[RegulationInsightBullet] = []
+    affected_parties: List[RegulationInsightBullet] = []
+    citations: List[RegulationCitation] = []
+    method: str = "regulation_amendment_impact_v1"
+    warnings: List[str] = []
+    error_code: Optional[str] = None

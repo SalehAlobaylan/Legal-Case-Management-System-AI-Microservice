@@ -43,3 +43,37 @@ def test_similarity_basic():
     assert "doc" in first and "score" in first
     assert isinstance(first["doc"], str)
     assert isinstance(first["score"], float)
+
+
+def test_regulation_summary_analysis_basic():
+    payload = {
+        "regulation_text": "يجب على المنشأة الالتزام بساعات العمل. يعاقب المخالف بغرامة مالية.",
+        "regulation_title": "نظام العمل",
+        "language_code": "ar",
+    }
+    r = client.post("/regulations/summary-analysis", json=payload)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok"
+    assert isinstance(body["summary"], str)
+    assert isinstance(body["obligations"], list)
+    assert isinstance(body["risk_flags"], list)
+    assert isinstance(body["citations"], list)
+
+
+def test_regulation_amendment_impact_basic():
+    payload = {
+        "regulation_title": "نظام العمل",
+        "old_text": "يجب الالتزام بساعات العمل.",
+        "new_text": "يجب الالتزام بساعات العمل. يعاقب المخالف بغرامة.",
+        "from_version_label": "v1",
+        "to_version_label": "v2",
+        "language_code": "ar",
+    }
+    r = client.post("/regulations/amendment-impact", json=payload)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok"
+    assert isinstance(body["what_changed"], list)
+    assert isinstance(body["legal_impact"], list)
+    assert isinstance(body["affected_parties"], list)

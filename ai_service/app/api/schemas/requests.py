@@ -75,3 +75,22 @@ class DocumentCaseInsightsRequest(BaseModel):
     document_name: str = "document"
     top_k: int = 5
     max_source_chars: int = 15000
+
+
+class RegulationSummaryAnalysisRequest(BaseModel):
+    regulation_text: str
+    regulation_title: str = "regulation"
+    source_metadata: Optional[dict] = None
+    language_code: str = "ar"
+    max_source_chars: int = 40000
+
+
+class RegulationAmendmentImpactRequest(BaseModel):
+    regulation_title: str = "regulation"
+    old_text: str
+    new_text: str
+    from_version_label: str = "old"
+    to_version_label: str = "new"
+    diff_summary: Optional[dict] = None
+    language_code: str = "ar"
+    max_source_chars: int = 40000

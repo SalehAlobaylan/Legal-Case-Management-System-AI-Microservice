@@ -126,6 +126,34 @@ class Settings(BaseSettings):
         default=4,
         validation_alias="INSIGHTS_SUMMARY_SENTENCES",
     )
+    reg_insights_max_source_chars: int = Field(
+        default=40000,
+        validation_alias="REG_INSIGHTS_MAX_SOURCE_CHARS",
+    )
+    reg_impact_max_source_chars: int = Field(
+        default=40000,
+        validation_alias="REG_IMPACT_MAX_SOURCE_CHARS",
+    )
+    llm_provider: str = Field(
+        default="heuristic",
+        validation_alias="LLM_PROVIDER",
+    )
+    llm_base_url: str = Field(
+        default="",
+        validation_alias="LLM_BASE_URL",
+    )
+    llm_api_key: str = Field(
+        default="",
+        validation_alias="LLM_API_KEY",
+    )
+    llm_model: str = Field(
+        default="",
+        validation_alias="LLM_MODEL",
+    )
+    llm_timeout_seconds: float = Field(
+        default=30.0,
+        validation_alias="LLM_TIMEOUT_SECONDS",
+    )
 
     @field_validator("cors_origins", mode="before")
     @classmethod
