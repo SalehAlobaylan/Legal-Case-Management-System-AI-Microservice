@@ -17,6 +17,7 @@ The service provides AI-powered semantic matching between legal cases and regula
 2. **Matches against regulations** - Compares against all available laws/regulations
 3. **Ranks by relevance** - Returns matches with confidence scores (0.0-1.0)
 4. **Enables quick linking** - Backend stores results as case-regulation relationships
+5. **Explains why a match happened** - Returns line-level evidence and confidence breakdown
 
 **Use Case:** When a lawyer creates a labor dispute case, they click "Generate AI Suggestions" and the system finds all relevant labor laws automatically.
 
@@ -63,16 +64,35 @@ Find regulations related to a case. **For backend integration.**
 ```json
 {
   "case_text": "Labor dispute regarding wrongful termination",
+  "case_fragments": [
+    {
+      "fragment_id": "case:description",
+      "text": "Employer terminated employee without notice and withheld dues",
+      "source": "case"
+    }
+  ],
   "regulations": [
     {
       "id": 1,
       "title": "Saudi Labor Law",
       "category": "labor",
-      "content_text": "Article 77 regarding termination..."
+      "regulation_version_id": 44,
+      "content_text": "Article 77 regarding termination...",
+      "candidate_chunks": [
+        {
+          "chunk_id": 9001,
+          "chunk_index": 2,
+          "line_start": 120,
+          "line_end": 146,
+          "article_ref": "Article 77",
+          "text": "Termination compensation and notification requirements..."
+        }
+      ]
     }
   ],
   "top_k": 10,
-  "threshold": 0.3
+  "threshold": 0.3,
+  "strict_mode": true
 }
 ```
 
@@ -82,9 +102,38 @@ Find regulations related to a case. **For backend integration.**
   "related_regulations": [
     {
       "regulation_id": 1,
+      "matched_regulation_version_id": 44,
       "title": "Saudi Labor Law",
       "category": "labor",
-      "similarity_score": 0.92
+      "similarity_score": 0.92,
+      "evidence": [
+        {
+          "fragment_id": "case:description",
+          "source": "case",
+          "score": 0.91
+        }
+      ],
+      "line_matches": [
+        {
+          "case_fragment_id": "case:description",
+          "case_snippet": "terminated employee without notice",
+          "regulation_chunk_id": 9001,
+          "regulation_snippet": "Termination compensation and notification requirements",
+          "line_start": 120,
+          "line_end": 146,
+          "article_ref": "Article 77",
+          "pair_score": 0.89,
+          "contribution": 0.42
+        }
+      ],
+      "score_breakdown": {
+        "semantic_max": 0.91,
+        "support_coverage": 0.86,
+        "lexical_overlap": 0.57,
+        "category_prior": 1.0,
+        "final_score": 0.92
+      },
+      "warnings": []
     }
   ],
   "query_length": 48,
@@ -205,6 +254,15 @@ OCR_STRICT_MODE=false
 INSIGHTS_DEFAULT_TOP_K=5
 INSIGHTS_MAX_SOURCE_CHARS=15000
 INSIGHTS_SUMMARY_SENTENCES=4
+REG_INSIGHTS_MAX_SOURCE_CHARS=40000
+REG_IMPACT_MAX_SOURCE_CHARS=40000
+
+# Optional LLM provider for regulation summary/impact generation
+LLM_PROVIDER=heuristic
+LLM_BASE_URL=
+LLM_API_KEY=
+LLM_MODEL=
+LLM_TIMEOUT_SECONDS=30
 ```
 
 ---
@@ -284,6 +342,7 @@ The backend should implement:
 - ✨ **New Endpoint:** `POST /similarity/find-related` for backend integration
 - ✨ **New Endpoint:** `POST /documents/case-insights` for case-focused attachment insights
 - ✨ **New Endpoint:** `POST /documents/extract` for OCR-aware attachment extraction
+- ✨ **Explainability:** line-level matches, evidence fragments, and confidence score breakdown in `/similarity/find-related`
 - 📝 **Comprehensive Docs:** 1500+ lines of integration guides
 - 🧪 **Test Scripts:** Integration test suite
 - 🔒 **Better Error Handling:** Descriptive messages & logging

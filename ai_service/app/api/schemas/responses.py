@@ -27,13 +27,39 @@ class MatchEvidence(BaseModel):
     score: float
 
 
+class LineMatch(BaseModel):
+    case_fragment_id: str
+    case_snippet: str
+    regulation_chunk_id: Optional[int] = None
+    regulation_snippet: str
+    line_start: Optional[int] = None
+    line_end: Optional[int] = None
+    article_ref: Optional[str] = None
+    pair_score: float
+    contribution: float
+
+
+class ScoreBreakdown(BaseModel):
+    semantic_max: float
+    support_coverage: float
+    lexical_overlap: float
+    category_prior: float
+    final_score: float
+    has_case_support: bool = False
+    strong_support_count: int = 0
+
+
 class RelatedRegulation(BaseModel):
     """A regulation matched to a case with similarity score."""
     regulation_id: int
+    matched_regulation_version_id: Optional[int] = None
     title: str
     category: Optional[str] = None
     similarity_score: float
     evidence: Optional[List[MatchEvidence]] = None
+    line_matches: Optional[List[LineMatch]] = None
+    score_breakdown: Optional[ScoreBreakdown] = None
+    warnings: List[str] = []
 
 
 class FindRelatedResponse(BaseModel):

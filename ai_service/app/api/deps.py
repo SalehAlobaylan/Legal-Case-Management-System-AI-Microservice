@@ -1,6 +1,22 @@
-from typing import Generator
+"""
+Shared FastAPI dependencies.
 
-# Placeholder: later we’ll return shared services (models, db, etc.)
-def get_dummy_dep() -> Generator[str, None, None]:
-    """Example dependency to show structure."""
-    yield "ok"
+Provides singleton instances of expensive services (e.g. EmbeddingService)
+so they are initialised once at startup rather than per-request.
+"""
+
+from __future__ import annotations
+
+from functools import lru_cache
+
+from app.core.embeddings import EmbeddingService
+
+
+@lru_cache(maxsize=1)
+def get_embedding_service() -> EmbeddingService:
+    """
+    Return a process-wide singleton EmbeddingService.
+
+    When provider="bge", this avoids reloading the model on every request.
+    """
+    return EmbeddingService()

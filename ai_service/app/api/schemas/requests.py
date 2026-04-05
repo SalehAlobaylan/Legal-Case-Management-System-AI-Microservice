@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class EmbedRequest(BaseModel):
@@ -20,7 +20,9 @@ class RegulationCandidate(BaseModel):
     id: int
     title: str
     category: Optional[str] = None
+    regulation_version_id: Optional[int] = None
     content_text: Optional[str] = None
+    candidate_chunks: Optional[List["RegulationChunkCandidate"]] = None
 
 
 class CaseFragment(BaseModel):
@@ -29,6 +31,36 @@ class CaseFragment(BaseModel):
     source: str = "case"
     document_id: Optional[int] = None
     document_name: Optional[str] = None
+
+
+class RegulationChunkCandidate(BaseModel):
+    chunk_id: int
+    chunk_index: int
+    line_start: Optional[int] = None
+    line_end: Optional[int] = None
+    article_ref: Optional[str] = None
+    text: str
+
+
+class CaseProfile(BaseModel):
+    case_id: Optional[int] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    case_type: Optional[str] = None
+    status: Optional[str] = None
+    court_jurisdiction: Optional[str] = None
+    client_info: Optional[str] = None
+
+
+class ScoringProfile(BaseModel):
+    semantic_weight: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    support_weight: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    lexical_weight: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    category_weight: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    strict_min_final_score: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    strict_min_pair_score: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    strict_min_supporting_matches: Optional[int] = Field(default=None, ge=1, le=10)
+    require_case_support: Optional[bool] = None
 
 
 class FindRelatedRequest(BaseModel):
@@ -41,6 +73,9 @@ class FindRelatedRequest(BaseModel):
     top_k: int = 10
     threshold: float = 0.3
     case_fragments: Optional[List[CaseFragment]] = None
+    case_profile: Optional[CaseProfile] = None
+    strict_mode: bool = True
+    scoring_profile: Optional[ScoringProfile] = None
 
 
 class RegulationExtractRequest(BaseModel):
