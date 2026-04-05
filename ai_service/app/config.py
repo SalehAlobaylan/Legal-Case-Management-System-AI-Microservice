@@ -5,6 +5,9 @@ from pydantic import AliasChoices, Field, field_validator
 from typing import List, Any
 import json
 
+# Resolve .env relative to this file: ai_service/app/config.py -> ../../.env
+_ENV_FILE = Path(__file__).parent.parent.parent / ".env"
+
 
 class Settings(BaseSettings):
     # Pydantic v2 settings config
