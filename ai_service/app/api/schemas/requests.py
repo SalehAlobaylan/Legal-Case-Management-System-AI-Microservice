@@ -91,10 +91,55 @@ class RegulationExtractRequest(BaseModel):
     max_chars: Optional[int] = None
 
 
+class ChatRegulationChunkContext(BaseModel):
+    """A pre-retrieved regulation chunk passed from the backend."""
+    chunk_id: int
+    regulation_id: int
+    regulation_title: str
+    article_ref: Optional[str] = None
+    content: str
+    similarity_score: Optional[float] = None
+
+
+class ChatDocumentChunkContext(BaseModel):
+    """A pre-retrieved document chunk passed from the backend."""
+    chunk_id: int
+    document_id: int
+    document_name: str
+    content: str
+
+
+class ChatCaseContext(BaseModel):
+    """Case metadata for case-aware chat."""
+    case_id: int
+    title: str
+    case_type: Optional[str] = None
+    description: Optional[str] = None
+
+
+class OrgCaseSummary(BaseModel):
+    """Summary of a case in the user's organization."""
+    case_id: int
+    case_number: str
+    title: str
+    case_type: str
+    status: str
+    client_info: Optional[str] = None
+    filing_date: Optional[str] = None
+    next_hearing: Optional[str] = None
+
+
 class ChatRequest(BaseModel):
     message: str
-    context: Optional[dict] = None
+    context: Optional[dict] = None  # backward compat
     history: Optional[List[dict]] = None
+    regulation_chunks: Optional[List[ChatRegulationChunkContext]] = None
+    document_chunks: Optional[List[ChatDocumentChunkContext]] = None
+    case_context: Optional[ChatCaseContext] = None
+    org_cases: Optional[List[OrgCaseSummary]] = None
+    language: Optional[str] = None  # "ar" or "en", auto-detect if omitted
+    session_id: Optional[str] = None
+    stream: bool = False
 
 
 class AnalyzeCaseRequest(BaseModel):

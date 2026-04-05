@@ -118,9 +118,18 @@ class DocumentExtractResponse(BaseModel):
     error_code: Optional[str] = None
 
 
+class ChatCitation(BaseModel):
+    regulation_id: int
+    regulation_title: str
+    article_ref: Optional[str] = None
+    chunk_id: Optional[int] = None
+
+
 class ChatResponse(BaseModel):
     response: str
-    citations: List[dict] = []
+    citations: List[ChatCitation] = []
+    language: str = "ar"
+    disclaimer: str = ""
 
 
 class AnalyzeCaseResponse(BaseModel):
