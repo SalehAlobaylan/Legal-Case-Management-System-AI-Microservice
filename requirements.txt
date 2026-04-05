@@ -68,3 +68,4 @@ tqdm>=4.66,<5.0
 # HTTP requests for MOJ API scraping
 requests>=2.31,<3.0
 
+python-multipart>=0.0.9

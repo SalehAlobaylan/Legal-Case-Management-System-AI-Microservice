@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from typing import List, Any
 import json
 
@@ -11,8 +11,18 @@ _ENV_FILE = Path(__file__).parent.parent.parent / ".env"
 
 class Settings(BaseSettings):
     # Pydantic v2 settings config
+    _REPO_ROOT = Path(__file__).resolve().parents[2]
     model_config = SettingsConfigDict(
-        env_file=str(_ENV_FILE),
+        # Resolve env files robustly no matter which working directory uvicorn uses.
+        # Priority (later entries can override earlier ones):
+        # - repo root .env
+        # - ai_service/.env
+        # - current working directory .env
+        env_file=(
+            _REPO_ROOT / ".env",
+            _REPO_ROOT / "ai_service" / ".env",
+            ".env",
+        ),
         case_sensitive=False,
         extra="ignore",
     )
@@ -20,7 +30,8 @@ class Settings(BaseSettings):
     # Embedding backend selection
     embeddings_provider: str = Field(
         default="fake",  # "fake" for tests, "bge" for real model in future
-        validation_alias="EMBEDDINGS_PROVIDER",
+        # Support both names to avoid silent fallback to default "fake".
+        validation_alias=AliasChoices("EMBEDDINGS_PROVIDER", "EMBEDDINGS_MODEL"),
     )
     embedding_model_name: str = Field(
         default="BAAI/bge-m3",

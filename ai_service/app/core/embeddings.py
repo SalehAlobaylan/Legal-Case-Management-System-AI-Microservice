@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import math
 from typing import List, Sequence
 
 from app.config import settings
 
 try:
-    # Only needed when using the real BGE model
+    # Required only for the real BGE model path.
     from sentence_transformers import SentenceTransformer  # type: ignore
 except ImportError:
     SentenceTransformer = None  # type: ignore
@@ -14,15 +15,14 @@ except ImportError:
 
 class EmbeddingService:
     """
-    Embedding wrapper with two modes:
+    Embedding wrapper with two modes.
 
     - provider="fake":
-        * Very fast, deterministic, 4-dim vectors.
-        * Used for tests (/embed, /similarity, pytest).
+        Fast deterministic vectors for local/dev and tests.
+        Emits 1024-dim vectors so backend pgvector pipelines can run end-to-end.
 
     - provider="bge":
-        * Uses BAAI/bge-m3 via sentence-transformers.
-        * Used in experiments (eval_bge_m3, eval_alarb_*).
+        Uses BAAI/bge-m3 via sentence-transformers.
     """
 
     def __init__(
@@ -31,7 +31,6 @@ class EmbeddingService:
         model_name: str | None = None,
         device: str | None = None,
     ) -> None:
-        # Decide provider from config or explicit override
         self.provider = (provider or settings.embeddings_provider).lower()
         self.model = None
 
@@ -44,11 +43,6 @@ class EmbeddingService:
             name = model_name or settings.embedding_model_name
             dev = device or settings.embedding_device
             self.model = SentenceTransformer(name, device=dev)
-        else:
-            # fake provider → no heavy model
-            self.model = None
-
-    # ---------- internal helpers ---------- #
 
     @staticmethod
     def _normalize_vector(vec: Sequence[float]) -> List[float]:
@@ -57,45 +51,42 @@ class EmbeddingService:
 
     def _embed_fake(self, texts: Sequence[str]) -> List[List[float]]:
         """
-        Very simple deterministic embedding:
+        Deterministic 1024-dim embedding.
 
-        4-dim vector per text:
-          dim 0: 1.0 if "contract"/"عقد" appears
-          dim 1: 1.0 if "weather"/"طقس" appears
-          dim 2: 1.0 if "case"/"قضية"/"دعوى" appears
-          dim 3: scaled text length
+        - First 4 dims are simple hand-crafted features.
+        - Remaining dims are hashed token counts for lexical overlap.
         """
+        dimensions = 1024
         vectors: List[List[float]] = []
 
         for text in texts:
-            t = text.lower()
+            lowered = text.lower()
+            vector = [0.0] * dimensions
 
-            c_contract = 1.0 if ("contract" in t or "عقد" in t) else 0.0
-            c_weather = 1.0 if ("weather" in t or "طقس" in t) else 0.0
-            c_case = 1.0 if ("case" in t or "قضية" in t or "دعوى" in t) else 0.0
-            length_feat = min(len(text) / 100.0, 10.0)
+            # Lightweight anchor features.
+            vector[0] = 1.0 if "contract" in lowered else 0.0
+            vector[1] = 1.0 if "labor" in lowered else 0.0
+            vector[2] = 1.0 if "case" in lowered else 0.0
+            vector[3] = min(len(text) / 100.0, 10.0)
 
-            vectors.append([c_contract, c_weather, c_case, length_feat])
+            # Hashed bag-of-tokens into dims [4..1023].
+            for token in lowered.split():
+                if not token:
+                    continue
+                digest = hashlib.sha1(token.encode("utf-8")).digest()
+                hashed = int.from_bytes(digest[:4], byteorder="little", signed=False)
+                idx = 4 + (hashed % (dimensions - 4))
+                vector[idx] += 1.0
+
+            vectors.append(vector)
 
         return vectors
-
-    # ---------- public API ---------- #
 
     def embed_documents(
         self,
         texts: Sequence[str],
         normalize: bool | None = None,
     ) -> List[List[float]]:
-        """
-        Embed a batch of texts.
-
-        normalize:
-          - True  → L2-normalize each vector
-          - False → leave as-is
-          - None  → default:
-              * provider="bge": normalize=True
-              * provider="fake": normalize=False
-        """
         if self.provider == "bge":
             raw_vectors = self.model.encode(  # type: ignore[union-attr]
                 list(texts),
@@ -106,7 +97,7 @@ class EmbeddingService:
             vectors = self._embed_fake(texts)
 
         if normalize is None:
-            normalize = (self.provider == "bge")
+            normalize = self.provider == "bge"
 
         if normalize:
             vectors = [self._normalize_vector(v) for v in vectors]
@@ -118,5 +109,5 @@ class EmbeddingService:
         text: str,
         normalize: bool | None = None,
     ) -> List[float]:
-        """Embed a single query string."""
         return self.embed_documents([text], normalize=normalize)[0]
+
