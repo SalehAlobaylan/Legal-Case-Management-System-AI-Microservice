@@ -45,7 +45,7 @@ def main() -> None:
 
     # ── TUNE THESE TO CONTROL RUNTIME ─────────────────────────────────────────
     num_cases = 30
-    top_k = 5           
+    top_k = 3           
     negatives_per_case = 20 
     # ──────────────────────────────────────────────────────────────────────────
 

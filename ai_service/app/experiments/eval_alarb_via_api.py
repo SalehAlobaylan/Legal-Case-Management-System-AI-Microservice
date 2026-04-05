@@ -47,7 +47,7 @@ def main() -> None:
 
     # ── TUNE THESE TO CONTROL RUNTIME ─────────────────────────────────────────
     num_cases = 20           # how many random cases to sample
-    top_k = 5                # size of top-k to check
+    top_k = 3              # size of top-k to check
     negatives_per_case = 10  # number of random negative articles per case
     # ──────────────────────────────────────────────────────────────────────────
 
