@@ -177,6 +177,28 @@ class Settings(BaseSettings):
         validation_alias="GEMINI_TOP_N_CANDIDATES",
     )
 
+    # --- Chat settings ---
+    chat_enabled: bool = Field(
+        default=True,
+        validation_alias="CHAT_ENABLED",
+    )
+    chat_max_history_turns: int = Field(
+        default=10,
+        validation_alias="CHAT_MAX_HISTORY_TURNS",
+    )
+    chat_max_context_chars: int = Field(
+        default=12000,
+        validation_alias="CHAT_MAX_CONTEXT_CHARS",
+    )
+    chat_temperature: float = Field(
+        default=0.3,
+        validation_alias="CHAT_TEMPERATURE",
+    )
+    chat_max_output_tokens: int = Field(
+        default=2048,
+        validation_alias="CHAT_MAX_OUTPUT_TOKENS",
+    )
+
     # --- Chunk overlap (Phase 1) ---
     chunk_overlap_ratio: float = Field(
         default=0.0,
