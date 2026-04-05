@@ -49,6 +49,15 @@ class ScoreBreakdown(BaseModel):
     strong_support_count: int = 0
 
 
+class VerificationDetail(BaseModel):
+    """LLM verification metadata for a matched regulation."""
+    status: str  # "approved", "rejected", "skipped", "error"
+    confidence: Optional[str] = None  # "high", "medium", "low"
+    explanation_ar: Optional[str] = None
+    relevant_articles: Optional[List[str]] = None
+    llm_score: Optional[float] = None
+
+
 class RelatedRegulation(BaseModel):
     """A regulation matched to a case with similarity score."""
     regulation_id: int
@@ -60,6 +69,11 @@ class RelatedRegulation(BaseModel):
     line_matches: Optional[List[LineMatch]] = None
     score_breakdown: Optional[ScoreBreakdown] = None
     warnings: List[str] = []
+    # --- Phase 1: optional verification metadata ---
+    verification: Optional[VerificationDetail] = None
+    reranker_score: Optional[float] = None
+    colbert_score: Optional[float] = None
+    pipeline_stage: Optional[str] = None
 
 
 class FindRelatedResponse(BaseModel):
@@ -70,6 +84,8 @@ class FindRelatedResponse(BaseModel):
     related_regulations: List[RelatedRegulation]
     query_length: int
     candidates_count: int
+    pipeline: Optional[str] = None
+    pipeline_warnings: Optional[List[str]] = None
 
 
 class RegulationExtractResponse(BaseModel):

@@ -76,6 +76,12 @@ class FindRelatedRequest(BaseModel):
     case_profile: Optional[CaseProfile] = None
     strict_mode: bool = True
     scoring_profile: Optional[ScoringProfile] = None
+    # --- Pipeline toggles (optional per-request overrides) ---
+    enable_llm_verification: Optional[bool] = None
+    enable_cross_encoder: Optional[bool] = None
+    enable_hyde: Optional[bool] = None
+    enable_agentic: Optional[bool] = None
+    enable_colbert: Optional[bool] = None
 
 
 class RegulationExtractRequest(BaseModel):

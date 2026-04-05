@@ -1,0 +1,77 @@
+[
+  {
+    "case_id": "eval_labor_termination",
+    "case_text": "نزاع عمالي: يدعي الموظف أنه تم فصله تعسفياً بدون سبب مشروع. تم إنهاء خدماته فوراً بدون إشعار أو تعويض مع وجود عقد عمل محدد المدة.",
+    "case_type": "labor",
+    "case_fragments": [
+      {
+        "fragment_id": "eval_labor_f1",
+        "text": "فصل تعسفي بدون سبب مشروع وبدون إشعار مسبق",
+        "source": "case"
+      },
+      {
+        "fragment_id": "eval_labor_f2",
+        "text": "عقد عمل محدد المدة مع شرط تعويض عند الإنهاء",
+        "source": "case"
+      }
+    ],
+    "regulations": [
+      {
+        "id": 101,
+        "title": "نظام العمل السعودي",
+        "category": "labor_law",
+        "content_text": "المادة 77: إذا أنهي العقد لسبب غير مشروع كان للطرف الذي أصابه ضرر من هذا الإنهاء الحق في تعويض. المادة 80: لا يجوز لصاحب العمل فسخ العقد دون مكافأة أو إشعار."
+      },
+      {
+        "id": 102,
+        "title": "نظام المحاكم التجارية",
+        "category": "commercial_law",
+        "content_text": "إجراءات التقاضي التجاري وحل المنازعات بين الكيانات التجارية."
+      },
+      {
+        "id": 103,
+        "title": "نظام تسوية المنازعات العمالية",
+        "category": "labor_law",
+        "content_text": "إجراءات حل المنازعات بين أصحاب العمل والعمال بما في ذلك الوساطة والتحكيم في قضايا الفصل التعسفي."
+      },
+      {
+        "id": 104,
+        "title": "النظام الإداري",
+        "category": "procedural_law",
+        "content_text": "اللوائح المنظمة للجهات الحكومية والإجراءات الإدارية."
+      }
+    ]
+  },
+  {
+    "case_id": "eval_commercial_contract",
+    "case_text": "Commercial dispute: Breach of supply contract between two companies. The supplier failed to deliver goods as specified in the contract terms within the agreed timeline.",
+    "case_type": "commercial",
+    "case_fragments": [
+      {
+        "fragment_id": "eval_comm_f1",
+        "text": "Breach of supply contract and failure to deliver goods on time",
+        "source": "case"
+      }
+    ],
+    "regulations": [
+      {
+        "id": 201,
+        "title": "Saudi Commercial Court Law",
+        "category": "commercial_law",
+        "content_text": "Article 15: Commercial disputes arising from contracts shall be adjudicated by the Commercial Court. Article 20: Breach of contract remedies include damages and specific performance."
+      },
+      {
+        "id": 202,
+        "title": "Saudi Labor Law",
+        "category": "labor_law",
+        "content_text": "Employment contracts and termination procedures for employees and employers."
+      },
+      {
+        "id": 203,
+        "title": "Civil Transactions Law",
+        "category": "civil_law",
+        "content_text": "General provisions for contracts, obligations, and damages in civil matters."
+      }
+    ]
+  }
+]

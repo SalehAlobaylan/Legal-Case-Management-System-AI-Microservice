@@ -155,6 +155,96 @@ class Settings(BaseSettings):
         validation_alias="LLM_TIMEOUT_SECONDS",
     )
 
+    # --- Gemini verification pipeline (Phase 1) ---
+    gemini_api_key: str = Field(
+        default="",
+        validation_alias="GEMINI_API_KEY",
+    )
+    gemini_model: str = Field(
+        default="gemini-2.0-flash",
+        validation_alias="GEMINI_MODEL",
+    )
+    gemini_enabled: bool = Field(
+        default=False,
+        validation_alias="GEMINI_ENABLED",
+    )
+    gemini_timeout_seconds: float = Field(
+        default=25.0,
+        validation_alias="GEMINI_TIMEOUT_SECONDS",
+    )
+    gemini_top_n_candidates: int = Field(
+        default=15,
+        validation_alias="GEMINI_TOP_N_CANDIDATES",
+    )
+
+    # --- Chunk overlap (Phase 1) ---
+    chunk_overlap_ratio: float = Field(
+        default=0.0,
+        validation_alias="CHUNK_OVERLAP_RATIO",
+    )
+
+    # --- Instruction-tuned embedding queries (Phase 1) ---
+    embedding_query_instruction_ar: str = Field(
+        default="",
+        validation_alias="EMBEDDING_QUERY_INSTRUCTION_AR",
+    )
+    embedding_query_instruction_en: str = Field(
+        default="",
+        validation_alias="EMBEDDING_QUERY_INSTRUCTION_EN",
+    )
+
+    # --- Cross-encoder reranking (Phase 2 — flags only, not yet implemented) ---
+    cross_encoder_enabled: bool = Field(
+        default=False,
+        validation_alias="CROSS_ENCODER_ENABLED",
+    )
+    cross_encoder_model_name: str = Field(
+        default="BAAI/bge-reranker-v2-m3",
+        validation_alias="CROSS_ENCODER_MODEL_NAME",
+    )
+    cross_encoder_top_n: int = Field(
+        default=15,
+        validation_alias="CROSS_ENCODER_TOP_N",
+    )
+
+    # --- HyDE (Phase 2) ---
+    hyde_enabled: bool = Field(
+        default=False,
+        validation_alias="HYDE_ENABLED",
+    )
+    hyde_max_query_chars: int = Field(
+        default=4000,
+        validation_alias="HYDE_MAX_QUERY_CHARS",
+    )
+
+    # --- ColBERT / late-interaction reranking (Phase 3 — experimental) ---
+    colbert_enabled: bool = Field(
+        default=False,
+        validation_alias="COLBERT_ENABLED",
+    )
+    colbert_top_n: int = Field(
+        default=15,
+        validation_alias="COLBERT_TOP_N",
+    )
+
+    # --- Agentic retrieval (Phase 3 — experimental) ---
+    agentic_retrieval_enabled: bool = Field(
+        default=False,
+        validation_alias="AGENTIC_RETRIEVAL_ENABLED",
+    )
+    agentic_max_rounds: int = Field(
+        default=2,
+        validation_alias="AGENTIC_MAX_ROUNDS",
+    )
+    agentic_min_candidates_for_refinement: int = Field(
+        default=3,
+        validation_alias="AGENTIC_MIN_CANDIDATES_FOR_REFINEMENT",
+    )
+    agentic_timeout_seconds: float = Field(
+        default=30.0,
+        validation_alias="AGENTIC_TIMEOUT_SECONDS",
+    )
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def parse_cors(cls, v: Any) -> Any:
