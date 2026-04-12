@@ -155,6 +155,12 @@ def main() -> None:
         help=f"Output model directory (default: {FINETUNED_MODEL_DIR})",
     )
     parser.add_argument(
+        "--evaluation-report",
+        type=str,
+        default=str(EVAL_REPORT),
+        help=f"Evaluation report JSON path (default: {EVAL_REPORT})",
+    )
+    parser.add_argument(
         "--base-model",
         type=str,
         default="BAAI/bge-m3",
@@ -214,6 +220,46 @@ def main() -> None:
         default=False,
         help="Disable mixed precision.",
     )
+    parser.add_argument(
+        "--eval-batch-size",
+        type=int,
+        default=0,
+        help="Batch size for baseline / per-epoch / post-training evaluation. "
+        "0=auto(min(train batch, 4)). Default: 0",
+    )
+    parser.add_argument(
+        "--skip-epoch-eval",
+        action="store_true",
+        default=False,
+        help="Disable evaluator runs during training epochs to reduce runtime "
+        "and GPU memory pressure.",
+    )
+    parser.add_argument(
+        "--checkpoint-path",
+        type=str,
+        default="",
+        help="Directory for periodic training checkpoints. "
+        "Default: <output-model>-checkpoints",
+    )
+    parser.add_argument(
+        "--checkpoint-save-steps",
+        type=int,
+        default=500,
+        help="Save a trainer checkpoint every N steps. 0 disables checkpoints. "
+        "Default: 500",
+    )
+    parser.add_argument(
+        "--checkpoint-save-total-limit",
+        type=int,
+        default=2,
+        help="Keep at most this many checkpoints. Default: 2",
+    )
+    parser.add_argument(
+        "--resume-from-checkpoint",
+        action="store_true",
+        default=False,
+        help="Resume from the latest checkpoint in --checkpoint-path.",
+    )
     args = parser.parse_args()
 
     use_fp16 = args.fp16 and not args.no_fp16
@@ -222,6 +268,17 @@ def main() -> None:
     train_path = Path(args.train)
     val_path = Path(args.val)
     output_model_path = Path(args.output_model)
+    report_path = Path(args.evaluation_report)
+    eval_batch_size = args.eval_batch_size or max(1, min(args.batch_size, 4))
+    checkpoint_path = (
+        Path(args.checkpoint_path)
+        if args.checkpoint_path
+        else output_model_path.parent / f"{output_model_path.name}-checkpoints"
+    )
+    if args.checkpoint_save_steps <= 0:
+        checkpoint_path = None
+    elif args.resume_from_checkpoint or args.checkpoint_save_steps > 0:
+        checkpoint_path.mkdir(parents=True, exist_ok=True)
 
     if not train_path.exists():
         logger.error(f"Training file not found: {train_path}")
@@ -274,6 +331,15 @@ def main() -> None:
         )
         sys.exit(1)
 
+    try:
+        import datasets  # noqa: F401 — ST fit() uses huggingface datasets internally
+    except ImportError:
+        logger.error(
+            "Missing package: datasets. sentence-transformers training requires it. "
+            "Install with: pip install datasets"
+        )
+        sys.exit(1)
+
     # ----- Load model -----
     logger.info(f"Loading base model: {args.base_model}")
 
@@ -283,7 +349,7 @@ def main() -> None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         if device == "cuda":
             gpu_name = torch.cuda.get_device_name(0)
-            gpu_mem = torch.cuda.get_device_properties(0).total_mem / 1e9
+            gpu_mem = torch.cuda.get_device_properties(0).total_memory / 1e9
             logger.info(f"  GPU: {gpu_name} ({gpu_mem:.1f} GB)")
         else:
             logger.warning("  No CUDA GPU detected, training on CPU (will be slow)")
@@ -297,7 +363,11 @@ def main() -> None:
 
     # ----- Baseline evaluation -----
     logger.info("Running baseline evaluation on val set...")
-    baseline_metrics = _evaluate_model(model, val_triplets, batch_size=args.batch_size * 2)
+    baseline_metrics = _evaluate_model(
+        model,
+        val_triplets,
+        batch_size=eval_batch_size,
+    )
     logger.info(f"  Baseline metrics: {baseline_metrics}")
 
     # ----- Prepare training data -----
@@ -316,15 +386,19 @@ def main() -> None:
     train_loss = losses.MultipleNegativesRankingLoss(model)
 
     # ----- Prepare evaluator -----
-    queries, corpus, relevant_docs = _build_ir_eval_data(val_triplets)
-    evaluator = InformationRetrievalEvaluator(
-        queries=queries,
-        corpus=corpus,
-        relevant_docs=relevant_docs,
-        name="saudi-legal-val",
-        batch_size=args.batch_size * 2,
-        show_progress_bar=True,
-    )
+    evaluator = None
+    if args.skip_epoch_eval:
+        logger.info("Per-epoch evaluator: disabled (--skip-epoch-eval)")
+    else:
+        queries, corpus, relevant_docs = _build_ir_eval_data(val_triplets)
+        evaluator = InformationRetrievalEvaluator(
+            queries=queries,
+            corpus=corpus,
+            relevant_docs=relevant_docs,
+            name="saudi-legal-val",
+            batch_size=eval_batch_size,
+            show_progress_bar=True,
+        )
 
     # ----- Training -----
     steps_per_epoch = math.ceil(len(train_examples) / args.batch_size)
@@ -341,23 +415,43 @@ def main() -> None:
     logger.info(f"  Total steps:      {total_steps}")
     logger.info(f"  FP16:             {use_fp16}")
     logger.info(f"  Max seq length:   {args.max_seq_length}")
+    logger.info(f"  Eval batch size:  {eval_batch_size}")
+    logger.info(f"  Epoch eval:       {not args.skip_epoch_eval}")
+    logger.info(
+        "  Checkpoints:      "
+        + (
+            f"{checkpoint_path} (every {args.checkpoint_save_steps} steps, "
+            f"keep {args.checkpoint_save_total_limit})"
+            if checkpoint_path is not None
+            else "disabled"
+        )
+    )
+    logger.info(f"  Resume latest:    {args.resume_from_checkpoint}")
     logger.info(f"  Output:           {output_model_path}")
+    logger.info(f"  Eval report:      {report_path}")
 
     try:
-        # sentence-transformers 3.x supports gradient_accumulation_steps
         fit_kwargs: dict = dict(
             train_objectives=[(train_dataloader, train_loss)],
             evaluator=evaluator,
             epochs=args.epochs,
             warmup_steps=warmup_steps,
             output_path=str(output_model_path),
-            evaluation_steps=max(100, len(train_dataloader) // 2),
+            # When >0, ST sets HF eval_strategy="steps" with eval_dataset=None;
+            # transformers>=4.41 then raises ValueError. Mid-epoch
+            # eval is skipped; EvaluatorCallback still runs IR eval each epoch.
+            evaluation_steps=0,
             save_best_model=True,
             use_amp=use_fp16,
             optimizer_params={"lr": args.lr},
             weight_decay=args.weight_decay,
             show_progress_bar=True,
         )
+        if checkpoint_path is not None:
+            fit_kwargs["checkpoint_path"] = str(checkpoint_path)
+            fit_kwargs["checkpoint_save_steps"] = args.checkpoint_save_steps
+            fit_kwargs["checkpoint_save_total_limit"] = args.checkpoint_save_total_limit
+            fit_kwargs["resume_from_checkpoint"] = args.resume_from_checkpoint
 
         # Add gradient accumulation if supported (sentence-transformers >= 2.3)
         import inspect
@@ -379,6 +473,14 @@ def main() -> None:
                 f"CUDA out of memory! Try reducing:\n"
                 f"  --batch-size {max(1, args.batch_size // 2)}\n"
                 f"  --max-seq-length {max(128, args.max_seq_length - 128)}\n"
+                f"  --eval-batch-size {max(1, min(eval_batch_size, args.batch_size // 2 or 1))}\n"
+                f"  --skip-epoch-eval\n"
+                + (
+                    "  --resume-from-checkpoint\n"
+                    if checkpoint_path is not None
+                    else ""
+                )
+                + 
                 f"Original error: {e}"
             )
             sys.exit(1)
@@ -390,7 +492,7 @@ def main() -> None:
     # Load the best saved model
     finetuned_model = SentenceTransformer(str(output_model_path), device=device)
     finetuned_metrics = _evaluate_model(
-        finetuned_model, val_triplets, batch_size=args.batch_size * 2
+        finetuned_model, val_triplets, batch_size=eval_batch_size
     )
     logger.info(f"  Fine-tuned metrics: {finetuned_metrics}")
 
@@ -404,9 +506,15 @@ def main() -> None:
             "grad_accum": args.grad_accum,
             "lr": args.lr,
             "max_seq_length": args.max_seq_length,
+            "eval_batch_size": eval_batch_size,
             "fp16": use_fp16,
+            "skip_epoch_eval": args.skip_epoch_eval,
             "warmup_ratio": args.warmup_ratio,
             "weight_decay": args.weight_decay,
+            "checkpoint_path": str(checkpoint_path) if checkpoint_path is not None else None,
+            "checkpoint_save_steps": args.checkpoint_save_steps,
+            "checkpoint_save_total_limit": args.checkpoint_save_total_limit,
+            "resume_from_checkpoint": args.resume_from_checkpoint,
             "train_triplets": len(train_triplets),
             "val_triplets": len(val_triplets),
         },
@@ -421,7 +529,7 @@ def main() -> None:
             diff = finetuned_metrics[key] - baseline_metrics[key]
             report["improvement"][key] = round(diff, 4)
 
-    report_path = EVAL_REPORT
+    report_path.parent.mkdir(parents=True, exist_ok=True)
     with open(report_path, "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
 

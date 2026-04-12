@@ -16,7 +16,10 @@ Usage:
     python -m ai_service.scripts.scrape_moj_judgments --court-type 1
 
 Resume support: if the output file already exists, already-scraped IDs are
-skipped automatically.
+skipped automatically for get-details, but the script still requests every
+list page unless you raise --start-page. A sidecar file
+``<output>.scrape_state.json`` records the last list page fully processed so
+you can pass ``--start-page (last_completed + 1)`` after WAF failures.
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
@@ -200,6 +204,38 @@ def _fetch_details(
         return _fetch_details_attempts(judgment_id, max_attempts)
 
 
+def _scrape_state_path(output_path: Path) -> Path:
+    return output_path.parent / f"{output_path.name}.scrape_state.json"
+
+
+def _load_scrape_state(output_path: Path) -> dict | None:
+    p = _scrape_state_path(output_path)
+    if not p.is_file():
+        return None
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _write_scrape_state(
+    output_path: Path,
+    *,
+    last_completed_list_page: int,
+    total_pages: int,
+    start_page: int,
+) -> None:
+    payload = {
+        "last_completed_list_page": last_completed_list_page,
+        "total_pages": total_pages,
+        "start_page_this_run": start_page,
+        "output": str(output_path.resolve()),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    sp = _scrape_state_path(output_path)
+    sp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
 def _load_existing_ids(output_path: Path) -> set[str]:
     """Load IDs already written to the output JSONL for resume support."""
     ids: set[str] = set()
@@ -294,7 +330,25 @@ def main() -> None:
     existing_ids = _load_existing_ids(output_path)
     errors_path = ERRORS_JSONL
 
+    prev_state = _load_scrape_state(output_path)
+    if prev_state is not None and args.start_page == 1:
+        last_done = prev_state.get("last_completed_list_page")
+        tot = prev_state.get("total_pages")
+        if isinstance(last_done, int):
+            nxt = last_done + 1
+            logger.info(
+                f"Previous run state: last completed list page = {last_done}"
+                + (f" of {tot}" if isinstance(tot, int) else "")
+                + f". If list requests failed after that, resume with: "
+                f"--start-page {nxt} "
+                f"(same --output and filters; existing IDs are still skipped)."
+            )
+
     # Discover total pages
+    logger.info(
+        f"Run: output={output_path} start_page={args.start_page} "
+        f"court_type={args.court_type!r} page_size={args.page_size}"
+    )
     logger.info("Fetching first page to discover total count...")
     first_page = _fetch_list_page(
         args.start_page,
@@ -339,6 +393,13 @@ def main() -> None:
             )
             if not judgments:
                 logger.warning(f"Page {page_num}: empty collection")
+                time.sleep(args.page_gap)
+                _write_scrape_state(
+                    output_path,
+                    last_completed_list_page=page_num,
+                    total_pages=total_pages,
+                    start_page=args.start_page,
+                )
                 continue
 
             for item in judgments:
@@ -402,6 +463,12 @@ def main() -> None:
                 time.sleep(args.delay)
 
             time.sleep(args.page_gap)
+            _write_scrape_state(
+                output_path,
+                last_completed_list_page=page_num,
+                total_pages=total_pages,
+                start_page=args.start_page,
+            )
 
     logger.info(
         f"Done! Scraped: {scraped_count}, Skipped: {skipped_count}, "

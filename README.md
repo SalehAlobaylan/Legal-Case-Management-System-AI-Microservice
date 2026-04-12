@@ -253,52 +253,111 @@ pip install psycopg2-binary accelerate tqdm requests
 ```bash
 cd Legal-Case-Management-System-AI-Microservice
 
-# Step 1 — Scrape MOJ judicial decisions (~4 hrs for all 31K, use --max-pages 5 to test first)
-python -m ai_service.scripts.scrape_moj_judgments --max-pages 5
-python -m ai_service.scripts.scrape_moj_judgments          # full run
+# 1) Register raw data sources once.
+# Existing normalized JSONL sources:
+python -m ai_service.scripts.run_finetune_pipeline source-add-jsonl \
+  --source-id moj-initial \
+  --path ai_service/data/raw/judgments.jsonl \
+  --description "Initial MOJ scrape batch"
 
-# Step 2 — Extract regulation citations from judgment text (~5-15 min)
-python -m ai_service.scripts.extract_citations
+python -m ai_service.scripts.run_finetune_pipeline source-add-jsonl \
+  --source-id moj-followup \
+  --path ai_service/data/raw/judgments2.jsonl \
+  --description "Follow-up MOJ scrape batch"
 
-# Step 2b — Sample 200 citations for manual QA review before training
-python -m ai_service.scripts.qa_sample
-# >>> Open ai_service/data/qa/qa_sample.csv and verify matches look correct <<<
+# Future MOJ scrape sources can also be registered directly:
+python -m ai_service.scripts.run_finetune_pipeline source-add-moj \
+  --source-id moj-commercial-2026q2 \
+  --start-page 1 --max-pages 0 --delay 1.5 --page-gap 5
 
-# Step 3 — Build (query, positive, negative) training triplets (~30-60 min)
-python -m ai_service.scripts.build_training_triplets
+# 2) Inspect the active source registry.
+python -m ai_service.scripts.run_finetune_pipeline source-list
 
-# Step 4 — Fine-tune BGE-M3 (~2-6 hrs on GPU)
-python -m ai_service.scripts.fine_tune_bge
+# 3) Run one unified pipeline over all enabled sources.
+python -m ai_service.scripts.run_finetune_pipeline run \
+  --run-id fine-tuning-v3 \
+  --all-enabled-sources \
+  --skip-qa \
+  --base-model BAAI/bge-m3 \
+  --embedding-model BAAI/bge-m3 \
+  --batch-size 4 \
+  --max-seq-length 384 \
+  --eval-batch-size 2 \
+  --skip-epoch-eval \
+  --checkpoint-save-steps 250 \
+  --checkpoint-save-total-limit 2
 ```
 
-Each step reads the previous step's output. All intermediate files are saved to `ai_service/data/` (gitignored). Resume is supported — interrupted scrape runs continue from where they left off.
+Any future source that can export the normalized raw judgment schema can be added through `source-add-jsonl`, including database exports and external partner datasets. MOJ scraping remains available through `source-add-moj`.
+
+The unified orchestrator now owns the normal workflow:
+
+- It ingests one or more registered sources.
+- It writes source-specific raw snapshots under `ai_service/data/pipeline_runs/<run_id>/sources/`.
+- It merges and deduplicates all source records into one canonical raw dataset for that run.
+- It extracts citations, optionally writes a QA sample, builds triplets, and fine-tunes a model using run-scoped artifact paths.
+- It stores a run manifest at `ai_service/data/pipeline_runs/<run_id>/run_manifest.json`.
+- It stores the model at `ai_service/models/pipeline_runs/<run_id>/model`.
+- It updates aliases at `ai_service/data/pipeline/latest_run.json` and `ai_service/models/latest_model.json`.
+
+This keeps new sources additive instead of creating parallel `judgments2`, `citations2`, `triplets2`, or manual merge-only flows.
+
+### Importing Existing Legacy Runs
+
+Current one-off runs can be registered in the unified manifest system without moving files:
+
+```bash
+python -m ai_service.scripts.run_finetune_pipeline import-legacy \
+  --run-id legacy-v1 \
+  --raw ai_service/data/raw/judgments.jsonl \
+  --citations ai_service/data/citations/citations.jsonl \
+  --triplets-dir ai_service/data/triplets \
+  --model-dir ai_service/models/bge-m3-saudi-legal-v1 \
+  --evaluation-report ai_service/models/evaluation_report.json
+```
+
+### Advanced / Stage-Level Scripts
+
+The lower-level scripts still exist for debugging or one-off execution, but the recommended flow is the orchestrator above:
+
+```bash
+python -m ai_service.scripts.scrape_moj_judgments
+python -m ai_service.scripts.extract_citations
+python -m ai_service.scripts.qa_sample
+python -m ai_service.scripts.build_training_triplets
+python -m ai_service.scripts.fine_tune_bge
+```
 
 ### CLI Options
 
 | Script | Key flags |
 |--------|-----------|
+| `run_finetune_pipeline source-add-jsonl` | `--source-id`, `--path`, `--description` |
+| `run_finetune_pipeline source-add-moj` | `--source-id`, `--start-page`, `--max-pages`, `--delay`, `--page-gap` |
+| `run_finetune_pipeline run` | `--run-id`, `--all-enabled-sources`, `--stages`, `--skip-qa`, `--base-model`, `--embedding-model`, `--checkpoint-save-steps` |
+| `run_finetune_pipeline import-legacy` | `--run-id`, `--raw`, `--citations`, `--triplets-dir`, `--model-dir` |
 | `scrape_moj_judgments` | `--max-pages N`, `--delay 0.5`, `--court-type 1`, `--start-page N` |
 | `extract_citations` | `--input`, `--output`, `--regulations-cache` |
 | `qa_sample` | `--n 200`, `--seed 42` |
-| `build_training_triplets` | `--hard-neg-k 10`, `--max-hard-neg 3`, `--val-ratio 0.2`, `--max-query-chars 1500` |
-| `fine_tune_bge` | `--batch-size 8`, `--epochs 3`, `--lr 2e-5`, `--max-seq-length 512`, `--no-fp16` |
+| `build_training_triplets` | `--hard-neg-k 10`, `--max-hard-neg 3`, `--val-ratio 0.2`, `--max-query-chars 1500`, `--embedding-model`, `--device` |
+| `fine_tune_bge` | `--batch-size 8`, `--epochs 3`, `--lr 2e-5`, `--max-seq-length 512`, `--evaluation-report`, `--no-fp16` |
 
 ### Verifying Results
 
 | Step | Check |
 |------|-------|
-| After Step 1 | `wc -l ai_service/data/raw/judgments.jsonl` — expect thousands of lines |
-| After Step 2 | `ai_service/data/citations/citations_stats.json` — expect 20–40% citation rate |
-| After Step 2b | Review `qa_sample.csv` — verify regulation matches make sense before continuing |
-| After Step 3 | `ai_service/data/triplets/stats.json` — expect 5,000+ training triplets |
-| After Step 4 | `ai_service/models/evaluation_report.json` — fine-tuned Recall@10 should beat baseline |
+| After `run_finetune_pipeline run` | `ai_service/data/pipeline_runs/<run_id>/run_manifest.json` should show completed stages |
+| After merge stage | `ai_service/data/pipeline_runs/<run_id>/merged/judgments.jsonl` should contain the deduplicated union of active sources |
+| After citations stage | `ai_service/data/pipeline_runs/<run_id>/citations/citations_stats.json` should show a healthy citation rate |
+| After triplets stage | `ai_service/data/pipeline_runs/<run_id>/triplets/stats.json` should show the train/val counts for that run |
+| After training stage | `ai_service/models/pipeline_runs/<run_id>/evaluation_report.json` should show the fine-tuned metrics |
 
 ### Deploying the Fine-Tuned Model
 
 No code changes needed. Update your `.env`:
 
 ```env
-EMBEDDING_MODEL_NAME=./ai_service/models/bge-m3-saudi-legal-v1
+EMBEDDING_MODEL_NAME=./ai_service/models/pipeline_runs/<run_id>/model
 EMBEDDING_DEVICE=cuda
 ```
 

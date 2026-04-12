@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import struct
+from pathlib import Path
 from typing import Any, List, Optional
 
 from loguru import logger
@@ -18,25 +19,52 @@ except ImportError:
     psycopg2 = None  # type: ignore
 
 
+def _parse_database_url_from_env_file(env_path: os.PathLike[str]) -> str:
+    """Return DATABASE_URL value from a .env file, or empty string."""
+    path = Path(env_path)
+    if not path.exists():
+        return ""
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except OSError:
+        return ""
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        if line.startswith("DATABASE_URL="):
+            return line.split("=", 1)[1].strip().strip('"').strip("'")
+    return ""
+
+
 def _get_database_url() -> str:
     """Resolve DATABASE_URL from env or .env file."""
-    url = os.environ.get("DATABASE_URL", "")
+    url = os.environ.get("DATABASE_URL", "").strip()
     if url:
         return url
 
-    # Try loading from the AI microservice .env
     from ai_service.scripts._shared.paths import AI_SERVICE_ROOT
 
-    env_path = AI_SERVICE_ROOT.parent / ".env"
-    if env_path.exists():
-        for line in env_path.read_text().splitlines():
-            line = line.strip()
-            if line.startswith("DATABASE_URL="):
-                return line.split("=", 1)[1].strip().strip('"').strip("'")
+    microservice_root = AI_SERVICE_ROOT.parent
+    candidates = [
+        microservice_root / ".env",
+        microservice_root.parent / "Legal-Case-Management-System" / ".env",
+    ]
 
+    for env_path in candidates:
+        url = _parse_database_url_from_env_file(env_path)
+        if url:
+            return url
+
+    c0, c1 = str(candidates[0].resolve()), str(candidates[1].resolve())
     raise RuntimeError(
-        "DATABASE_URL not found. Set it in your environment or in "
-        "Legal-Case-Management-System-AI-Microservice/.env"
+        "DATABASE_URL not found. Use the same PostgreSQL URL as the Node backend:\n"
+        f"  • Set environment variable DATABASE_URL, or\n"
+        f"  • Add DATABASE_URL=postgresql://... to:\n"
+        f"      {c0}\n"
+        f"      or {c1}"
     )
 
 
@@ -49,7 +77,19 @@ def get_connection():
         )
     url = _get_database_url()
     logger.info("Connecting to database...")
-    return psycopg2.connect(url)
+    try:
+        return psycopg2.connect(url)
+    except psycopg2.OperationalError as e:
+        err = str(e).lower()
+        if "could not translate host name" in err or "name or service not known" in err:
+            hint = (
+                "DNS could not resolve the database host. If DATABASE_URL uses "
+                "Supabase's pooler (*.pooler.supabase.com), try the direct connection "
+                "string from Supabase (host db.<project>.supabase.co, port 5432) instead, "
+                "or fix network/DNS and retry."
+            )
+            raise RuntimeError(hint) from e
+        raise
 
 
 def load_regulations(conn=None) -> List[dict]:
