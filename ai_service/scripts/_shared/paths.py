@@ -11,9 +11,15 @@ RAW_DIR = DATA_DIR / "raw"
 CITATIONS_DIR = DATA_DIR / "citations"
 TRIPLETS_DIR = DATA_DIR / "triplets"
 QA_DIR = DATA_DIR / "qa"
+PIPELINE_DIR = DATA_DIR / "pipeline"
+PIPELINE_RUNS_DIR = DATA_DIR / "pipeline_runs"
+PIPELINE_SOURCES_DIR = PIPELINE_DIR / "sources"
+PIPELINE_LATEST_RUN = PIPELINE_DIR / "latest_run.json"
 
 # Model output
 MODELS_DIR = AI_SERVICE_ROOT / "models"
+PIPELINE_MODELS_DIR = MODELS_DIR / "pipeline_runs"
+PIPELINE_LATEST_MODEL = MODELS_DIR / "latest_model.json"
 
 # Default file paths
 JUDGMENTS_JSONL = RAW_DIR / "judgments.jsonl"
@@ -35,5 +41,15 @@ MOJ_DETAILS_URL = f"{MOJ_API_BASE}/get-details"
 
 def ensure_dirs() -> None:
     """Create all output directories if they don't exist."""
-    for d in [RAW_DIR, CITATIONS_DIR, TRIPLETS_DIR, QA_DIR, MODELS_DIR]:
+    for d in [
+        RAW_DIR,
+        CITATIONS_DIR,
+        TRIPLETS_DIR,
+        QA_DIR,
+        MODELS_DIR,
+        PIPELINE_DIR,
+        PIPELINE_RUNS_DIR,
+        PIPELINE_SOURCES_DIR,
+        PIPELINE_MODELS_DIR,
+    ]:
         d.mkdir(parents=True, exist_ok=True)

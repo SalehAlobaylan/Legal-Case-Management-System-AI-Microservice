@@ -167,6 +167,18 @@ def main() -> None:
         default=42,
         help="Random seed. Default: 42",
     )
+    parser.add_argument(
+        "--embedding-model",
+        type=str,
+        default="BAAI/bge-m3",
+        help="SentenceTransformer model used for query embeddings. Default: BAAI/bge-m3",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="auto",
+        help="Embedding device for hard negative mining. auto, cuda, or cpu. Default: auto",
+    )
     args = parser.parse_args()
 
     random.seed(args.seed)
@@ -208,20 +220,26 @@ def main() -> None:
     )
 
     # ----- Phase B: Load BGE-M3 for query embedding -----
-    logger.info("Phase B: Loading BGE-M3 model for query embedding...")
-    try:
-        from sentence_transformers import SentenceTransformer  # type: ignore
-        model = SentenceTransformer("BAAI/bge-m3", device="cuda")
-        logger.info("  BGE-M3 loaded on CUDA")
-    except Exception:
+    logger.info("Phase B: Loading embedding model for query embedding...")
+    from sentence_transformers import SentenceTransformer  # type: ignore
+
+    candidate_devices = [args.device] if args.device != "auto" else ["cuda", "cpu"]
+    model = None
+    for device_name in candidate_devices:
         try:
-            from sentence_transformers import SentenceTransformer  # type: ignore
-            model = SentenceTransformer("BAAI/bge-m3", device="cpu")
-            logger.warning("  BGE-M3 loaded on CPU (CUDA not available)")
-        except Exception as e:
-            logger.error(f"Failed to load BGE-M3: {e}")
-            conn.close()
-            sys.exit(1)
+            model = SentenceTransformer(args.embedding_model, device=device_name)
+            logger.info(f"  {args.embedding_model} loaded on {device_name.upper()}")
+            break
+        except Exception:
+            continue
+
+    if model is None:
+        logger.error(
+            f"Failed to load embedding model {args.embedding_model} "
+            f"on devices {candidate_devices}"
+        )
+        conn.close()
+        sys.exit(1)
 
     # ----- Phase C: Process citations and build triplets -----
     logger.info("Phase C: Building triplets from citations...")
@@ -237,6 +255,8 @@ def main() -> None:
         "total_triplets_val": 0,
         "skipped_no_positive": 0,
         "skipped_no_text": 0,
+        "embedding_model": args.embedding_model,
+        "embedding_device": args.device,
     }
 
     with open(citations_path, "r", encoding="utf-8") as f:
