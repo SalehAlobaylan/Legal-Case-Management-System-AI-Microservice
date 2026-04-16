@@ -41,6 +41,46 @@ class Settings(BaseSettings):
         default="cpu",  # later you can try "cuda"
         validation_alias="EMBEDDING_DEVICE",
     )
+    hf_embed_provider_order: List[str] = Field(
+        default=["serverless", "endpoint", "bge"],
+        validation_alias="HF_EMBED_PROVIDER_ORDER",
+    )
+    hf_serverless_api_base: str = Field(
+        default="https://api-inference.huggingface.co/models",
+        validation_alias="HF_SERVERLESS_API_BASE",
+    )
+    hf_serverless_model_name: str = Field(
+        default="",
+        validation_alias="HF_SERVERLESS_MODEL_NAME",
+    )
+    hf_serverless_api_token: str = Field(
+        default="",
+        validation_alias="HF_SERVERLESS_API_TOKEN",
+    )
+    hf_endpoint_url: str = Field(
+        default="",
+        validation_alias="HF_ENDPOINT_URL",
+    )
+    hf_endpoint_api_token: str = Field(
+        default="",
+        validation_alias="HF_ENDPOINT_API_TOKEN",
+    )
+    hf_embed_request_timeout_seconds: float = Field(
+        default=30.0,
+        validation_alias="HF_EMBED_REQUEST_TIMEOUT_SECONDS",
+    )
+    hf_embed_retry_attempts: int = Field(
+        default=1,
+        validation_alias="HF_EMBED_RETRY_ATTEMPTS",
+    )
+    hf_embed_max_batch_size: int = Field(
+        default=16,
+        validation_alias="HF_EMBED_MAX_BATCH_SIZE",
+    )
+    hf_embed_cache_size: int = Field(
+        default=2048,
+        validation_alias="HF_EMBED_CACHE_SIZE",
+    )
 
     # Basic app info
     app_name: str = Field(default="AI Microservice", validation_alias="APP_NAME")
@@ -315,6 +355,19 @@ class Settings(BaseSettings):
                     pass
 
             return [item.strip() for item in s.split(",") if item.strip()]
+
+        return v
+
+    @field_validator("hf_embed_provider_order", mode="before")
+    @classmethod
+    def parse_hf_embed_provider_order(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            s = v.strip()
+            if s and not s.startswith("["):
+                return [item.strip().lower() for item in s.split(",") if item.strip()]
+
+        if isinstance(v, list):
+            return [str(item).strip().lower() for item in v if str(item).strip()]
 
         return v
 
