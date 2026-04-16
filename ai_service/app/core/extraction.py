@@ -80,6 +80,15 @@ def hash_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _looks_like_pdf(content: bytes) -> bool:
+    return content.lstrip().startswith(b"%PDF-")
+
+
+def _looks_like_html(content: bytes) -> bool:
+    sample = content[:2048].decode("utf-8", errors="ignore").strip().lower()
+    return "<html" in sample or "<!doctype html" in sample
+
+
 def parse_html(content: bytes) -> tuple[str, str]:
     decoded = content.decode("utf-8", errors="replace")
     soup = BeautifulSoup(decoded, "html.parser")
@@ -317,6 +326,19 @@ async def extract_text_from_bytes(
     )
     is_rtf = "application/rtf" in ctype or "text/rtf" in ctype or extension == ".rtf"
     is_markdown = extension in (".md", ".markdown")
+
+    if is_pdf and not _looks_like_pdf(content):
+        if _looks_like_html(content):
+            is_pdf = False
+            is_html = True
+            warnings.append(
+                "Payload is labeled as PDF but appears to be HTML; using HTML parser."
+            )
+        else:
+            is_pdf = False
+            warnings.append(
+                "Payload is labeled as PDF but does not contain a PDF header; skipping PDF parser/OCR."
+            )
 
     if is_doc:
         return ByteExtractionResult(

@@ -41,9 +41,12 @@ class LineMatch(BaseModel):
 
 class ScoreBreakdown(BaseModel):
     semantic_max: float
+    semantic_avg_top3: Optional[float] = None
     support_coverage: float
     lexical_overlap: float
     category_prior: float
+    evidence_quality: Optional[float] = None
+    fallback_penalty: Optional[float] = None
     final_score: float
     has_case_support: bool = False
     strong_support_count: int = 0
@@ -51,6 +54,7 @@ class ScoreBreakdown(BaseModel):
 
 class VerificationDetail(BaseModel):
     """LLM verification metadata for a matched regulation."""
+
     status: str  # "approved", "rejected", "skipped", "error"
     confidence: Optional[str] = None  # "high", "medium", "low"
     explanation_ar: Optional[str] = None
@@ -60,6 +64,7 @@ class VerificationDetail(BaseModel):
 
 class RelatedRegulation(BaseModel):
     """A regulation matched to a case with similarity score."""
+
     regulation_id: int
     matched_regulation_version_id: Optional[int] = None
     title: str
@@ -81,11 +86,13 @@ class FindRelatedResponse(BaseModel):
     Response from AI service with regulations related to a case.
     Returned by POST /similarity/find-related endpoint.
     """
+
     related_regulations: List[RelatedRegulation]
     query_length: int
     candidates_count: int
     pipeline: Optional[str] = None
     pipeline_warnings: Optional[List[str]] = None
+    diagnostics: Optional[dict] = None
 
 
 class RegulationExtractResponse(BaseModel):
@@ -136,6 +143,8 @@ class AnalyzeCaseResponse(BaseModel):
     summary: str
     strengths: List[str]
     weaknesses: List[str]
+    risks: List[str] = []
+    recommendations: List[str] = []
     recommendedStrategy: str
     successProbability: float
     predictedTimeline: str

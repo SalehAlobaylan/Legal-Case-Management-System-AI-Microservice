@@ -159,13 +159,47 @@ def _extract_citations(sentences: list[str], limit: int = 8) -> list[RegulationC
     return citations
 
 
+def _derive_bullet_title(sentence: str, fallback: str) -> str:
+    """Extract a short meaningful title from an Arabic legal sentence.
+
+    Strategy (in order):
+    1. Numbered/ordinal prefix before a dash or colon (e.g. "١-", "أولاً:").
+    2. Text before the first colon/comma, if ≤ 40 chars.
+    3. First 5 Arabic words.
+    4. ``fallback`` if nothing useful is found.
+    """
+    text = sentence.strip()
+
+    # Numbered item prefix: "١-", "١ -", "أولاً:" etc.
+    m = re.match(r"^([\u0660-\u06690-9]+\s*[-:–—]|[\u0600-\u06FF]{2,10}\s*[:-])\s*", text)
+    if m:
+        prefix = m.group(1).rstrip("-:–— ").strip()
+        if 1 < len(prefix) <= 30:
+            return prefix
+
+    # Text before first colon (Arabic or Latin) or Arabic comma.
+    for sep in (":", "：", "،"):
+        idx = text.find(sep)
+        if 0 < idx <= 45:
+            candidate = text[:idx].strip()
+            if candidate:
+                return candidate
+
+    # First 5 Arabic words.
+    words = re.findall(r"[\u0600-\u06FF]+", text)
+    if words:
+        return " ".join(words[:5])
+
+    return fallback
+
+
 def _build_bullets(sentences: list[str], title: str, limit: int) -> list[RegulationInsightBullet]:
     output: list[RegulationInsightBullet] = []
     for sentence in _dedupe_items(sentences, limit):
         description = sentence[:450]
         output.append(
             RegulationInsightBullet(
-                title=title,
+                title=_derive_bullet_title(sentence, title),
                 description=description,
                 severity=_severity_for_text(description),
             )
@@ -392,9 +426,17 @@ async def regulation_summary_analysis(
 
     llm_result, llm_error = await _try_llm_json(
         system_prompt=(
-            "أنت محلل قانوني. أرجع JSON فقط بالمفاتيح: "
-            "summary, obligations, risk_flags, key_dates, citations. "
-            "اجعل اللغة عربية موجزة ودقيقة، مع توثيق snippets في citations."
+            "أنت محلل قانوني متخصص. أرجع JSON فقط بالمفاتيح التالية:\n"
+            "- summary: ملخص تنفيذي موجز للنظام (فقرة واحدة).\n"
+            "- obligations: قائمة من البنود، كل بند له:\n"
+            "    title: عنوان قصير ومحدد يصف الالتزام (3-6 كلمات، لا تستخدم 'التزام تنظيمي' عامًا).\n"
+            "    description: وصف موجز للالتزام بجملة أو جملتين.\n"
+            "- risk_flags: قائمة من البنود، كل بند له:\n"
+            "    title: عنوان قصير ومحدد يصف المخاطرة (3-6 كلمات، لا تستخدم 'مؤشر مخاطر' عامًا).\n"
+            "    description: وصف موجز للمخاطرة بجملة أو جملتين.\n"
+            "- key_dates: قائمة من {label, value} للتواريخ والمدد الزمنية المذكورة.\n"
+            "- citations: قائمة من {snippet} لأبرز المقتطفات النصية الداعمة.\n"
+            "اجعل كل عنوان فريدًا ومحددًا بما يعكس مضمون البند تحديدًا."
         ),
         user_payload={
             "language_code": language_code,
@@ -480,7 +522,7 @@ async def regulation_amendment_impact(
     for sentence in added_sentences[:6]:
         what_changed_fallback.append(
             RegulationInsightBullet(
-                title="نص مضاف",
+                title=f"إضافة: {_derive_bullet_title(sentence, 'نص مضاف')}",
                 description=f"تمت إضافة نص: {sentence[:380]}",
                 severity=_severity_for_text(sentence),
             )
@@ -488,7 +530,7 @@ async def regulation_amendment_impact(
     for sentence in removed_sentences[:4]:
         what_changed_fallback.append(
             RegulationInsightBullet(
-                title="نص محذوف أو معدل",
+                title=f"حذف: {_derive_bullet_title(sentence, 'نص محذوف أو معدل')}",
                 description=f"تم حذف/تعديل نص: {sentence[:380]}",
                 severity=_severity_for_text(sentence),
             )
@@ -502,7 +544,7 @@ async def regulation_amendment_impact(
     for sentence in impact_sentence_pool[:6]:
         legal_impact_fallback.append(
             RegulationInsightBullet(
-                title="أثر قانوني محتمل",
+                title=f"أثر على: {_derive_bullet_title(sentence, 'التطبيق النظامي')}",
                 description=f"قد يؤثر هذا التغيير على التطبيق النظامي: {sentence[:360]}",
                 severity=_severity_for_text(sentence),
             )
@@ -545,9 +587,18 @@ async def regulation_amendment_impact(
     method = "heuristic_structured_v1"
     llm_result, llm_error = await _try_llm_json(
         system_prompt=(
-            "أنت محلل تشريعي. أرجع JSON فقط بالمفاتيح: "
-            "what_changed, legal_impact, affected_parties, citations. "
-            "اللغة عربية. يجب أن تكون البنود دقيقة ومختصرة ومسنودة بالمقتطفات."
+            "أنت محلل تشريعي متخصص في مقارنة النصوص القانونية. أرجع JSON فقط بالمفاتيح التالية:\n"
+            "- what_changed: قائمة من البنود، كل بند له:\n"
+            "    title: عنوان قصير ومحدد يصف ما تغيّر (3-6 كلمات، مثل: 'إضافة شرط التسجيل').\n"
+            "    description: وصف موجز للتغيير.\n"
+            "- legal_impact: قائمة من البنود، كل بند له:\n"
+            "    title: عنوان قصير يصف الأثر القانوني المحدد (3-6 كلمات، مثل: 'تشديد متطلبات الترخيص').\n"
+            "    description: وصف موجز للأثر.\n"
+            "- affected_parties: قائمة من البنود، كل بند له:\n"
+            "    title: اسم الجهة أو الفئة المتأثرة تحديدًا (مثل: 'المحامون المرخصون').\n"
+            "    description: كيف يؤثر عليهم التعديل.\n"
+            "- citations: قائمة من {snippet} لأبرز المقتطفات النصية الداعمة.\n"
+            "اجعل كل عنوان فريدًا ومحددًا بما يعكس مضمون البند، لا تستخدم عناوين عامة."
         ),
         user_payload={
             "regulation_title": payload.regulation_title,
