@@ -14,8 +14,8 @@ pydantic-settings>=2.2,<3.0
 # Simple structured logging
 loguru>=0.7,<1.0
 
-# Numpy
-numpy>=1.26,<3.0
+# Numpy (pin <2 to avoid ABI issues with torch/sentence-transformers)
+numpy>=1.26,<2.0
 
 # to run tests
 pytest>=8.2,<9.0
