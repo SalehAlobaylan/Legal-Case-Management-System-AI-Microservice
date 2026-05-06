@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 # 4) Install Python dependencies
 # Copy only requirements.txt first to leverage Docker cache:
 COPY requirements.txt .
+ENV PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
